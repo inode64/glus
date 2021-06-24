@@ -20,8 +20,18 @@ LOGS=$(mktemp -d)
 declare -r LOGS
 
 # Remove temporary files on exit.
-cleanup() { ret="$?"; rm -rf "${LOGS}"; trap - EXIT; exit "${ret:?}"; }
-{ trap cleanup EXIT ||:; trap cleanup TERM ||:; trap cleanup INT ||:; trap cleanup HUP ||:; } 2>/dev/null
+cleanup() {
+  ret="$?"
+  rm -rf "${LOGS}"
+  trap - EXIT
+  exit "${ret:?}"
+}
+{
+  trap cleanup EXIT || :
+  trap cleanup TERM || :
+  trap cleanup INT || :
+  trap cleanup HUP || :
+} 2>/dev/null
 
 errors=0
 
@@ -359,7 +369,7 @@ compile() {
     # First try download all files
     while true; do
       # shellcheck disable=SC2048
-      if command "${emerge} -f ${color} -u1 --keep-going --fail-clean y ${exclude} ${EMERGE_OPTS} $*" ; then
+      if command "${emerge} -f -1 --keep-going --fail-clean y ${color} ${exclude} ${EMERGE_OPTS} $*"; then
         break
       fi
 
@@ -370,7 +380,7 @@ compile() {
 
   if [ "${fetch:?}" = 'false' ]; then
     # Compile
-    command "${emerge} ${color} -v -u1 --keep-going --fail-clean y ${binary} ${pretend} $*"
+    command "${emerge} -v -1 --keep-going --fail-clean y ${color} ${exclude} ${binary} ${pretend} $*"
 
     # Update broken merges
     command "emaint ${pretend} merges"
@@ -515,7 +525,14 @@ main() {
   fi
 
   if [ "${exclude}" ]; then
-    exclude="--exclude \"${exclude}\""
+    # Count packages, if more than 1 use " to enclose packages
+    local words
+    words=$(echo "${exclude}" | awk '{print NF}')
+    if (( words > 1 )); then
+      exclude="--exclude \"${exclude}\""
+    else
+      exclude="--exclude ${exclude}"
+    fi
   fi
 
   # Check the header file.
@@ -572,14 +589,14 @@ main() {
   clean_portage_dir
 
   # First update the portage
-  compile "portage"
+  compile "-u portage"
 
   # Update the system base
   if [ "${system:?}" = "true" ]; then
     # First try compile all updates
     compile "-uDN system"
     # Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
-    compile "system"
+    compile "-u system"
   fi
 
   if [ "${world:?}" = "true" ]; then
