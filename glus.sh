@@ -369,7 +369,7 @@ compile() {
     # First try download all files
     while true; do
       # shellcheck disable=SC2048
-      if command "${emerge} -f -1 --keep-going --fail-clean y ${color} ${exclude} ${EMERGE_OPTS} $*"; then
+      if command "${emerge} -f -1 --keep-going --fail-clean y${color}${exclude}${EMERGE_OPTS} $*"; then
         break
       fi
 
@@ -380,10 +380,10 @@ compile() {
 
   if [ "${fetch:?}" = 'false' ]; then
     # Compile
-    command "${emerge} -v -1 --keep-going --fail-clean y ${color} ${exclude} ${binary} ${pretend} $*"
+    command "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*"
 
     # Update broken merges
-    command "emaint ${pretend} merges"
+    command "emaint${pretend} merges"
 
     # Update binutils, gcc
     UpdateDevel &>/dev/null
@@ -398,18 +398,18 @@ command() {
   fi
 
   local err temp_file
-  temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S)_$(echo "$@" | sed -e 's:/:_:g' | sed -e 's: :_:g' | sed -e 's:=:_:g').log
+  temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
 
   if [ "${pretend}" ]; then
     # shellcheck disable=SC2048
-    $* 2>/dev/null
+    eval "$*" 2>/dev/null
   else
     if [ "${quiet:?}" = 'true' ]; then
       # shellcheck disable=SC2048
-      $* &>"${temp_file}"
+      eval "$*" &>"${temp_file}"
     else
       # shellcheck disable=SC2048
-      $* | tee "${temp_file}"
+      eval "$*" | tee "${temp_file}"
     fi
     err=$?
     if [[ ${err} -ne 0 && ${email} ]]; then
@@ -525,14 +525,7 @@ main() {
   fi
 
   if [ "${exclude}" ]; then
-    # Count packages, if more than 1 use " to enclose packages
-    local words
-    words=$(echo "${exclude}" | awk '{print NF}')
-    if (( words > 1 )); then
-      exclude="--exclude \"${exclude}\""
-    else
-      exclude="--exclude ${exclude}"
-    fi
+    exclude=" --exclude '${exclude}'"
   fi
 
   # Check the header file.
@@ -540,21 +533,21 @@ main() {
   # If is false.
   'false') binary="" ;;
     # If is empty.
-  'true') binary="-k" ;;
+  'true') binary=" -k" ;;
     # If the value equals "only" or empty, use pkg.
-  'only') binary="-K" ;;
+  'only') binary=" -K" ;;
     # If the value equals "only", use pkgonly.
   'auto')
     if checkPKG; then
       echo "ok"
-      binary="-k"
+      binary=" -k"
     else
       binary=""
     fi
     ;;
   'autoonly')
     if checkPKG; then
-      binary="-K"
+      binary=" -K"
     else
       binary=""
     fi
@@ -631,15 +624,15 @@ main() {
   if [ "${fetch:?}" = 'false' ]; then
     # Remove old packages
     if [ "${clean:?}" = 'true' ]; then
-      command "emerge --depclean ${pretend} ${exclude}"
+      command "emerge --depclean${pretend}${exclude}"
     fi
 
     # Recompile all perl packages
-    command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y ${binary} ${pretend}"
+    command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
 
     if [ "${check:?}" = 'true' ]; then
       # Check system integrity
-      command "revdep-rebuild -- -v ${color} --fail-clean y ${binary} ${pretend}"
+      command "revdep-rebuild -- -v ${color} --fail-clean y${binary}${pretend}"
     fi
 
     if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
@@ -648,11 +641,13 @@ main() {
     fi
 
     # Check and fix problems in the world file
-    command "emaint ${pretend} world"
+    command "emaint${pretend} world"
 
     if [ "${clean:?}" = 'true' ]; then
-      command "eclean -C -d ${pretend} packages"
-      command "eclean -C -d ${pretend} distfiles"
+      if [ "${binary}" ]; then
+        command "eclean -C -d${pretend} packages"
+      fi
+      command "eclean -C -d${pretend} distfiles"
     fi
   fi
 }
