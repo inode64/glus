@@ -261,9 +261,6 @@ showHelp() {
      -e, --exclude <EXCLUDE>, \${GLUS_EXCLUDE}
         Exclude packages.
         (default: "${exclude}")%NL
-     -p --packages <PACKAGES>, \${GLUS_PACKAGES}
-        Add this packages for update.
-        (default: "${packages}")%NL
      -P --[no-]pretend, \${GLUS_PRETEND}
         Instead of actually performing the merge, simply display what *would* have been installed if --pretend weren't used.
         (default: "${pretend}")%NL
@@ -298,6 +295,9 @@ showHelp() {
         Show this help and quit.%NL
 
 	  SETS
+     -p --packages <PACKAGES>, \${GLUS_PACKAGES}
+        Add this packages for update.
+        (default: "${packages}")%NL
      -g --[no-]go, \${GLUS_GO}
         Add go lang packages for update.
         (default: ${go?})%NL
@@ -312,7 +312,7 @@ showHelp() {
         (default: ${security?})%NL
 
 	  ACTIONS
-     --[no-]system, \${GLUS_SYSTEM}
+     --[no-]system
         Compile only system core (weekly process, for example).
         (default: ${system?})%NL
      --world
@@ -435,6 +435,9 @@ main() {
     set +a
   fi
 
+  # Portage options
+  #
+
   # Sync portage.
   sync="${GLUS_SYNC-"true"}"
 
@@ -443,9 +446,6 @@ main() {
 
   # Exclude packages.
   exclude="${GLUS_EXCLUDE-""}"
-
-  # Add this packages for update
-  packages="${GLUS_PACKAGES-""}"
 
   # Display what packages have been installed
   pretend="${GLUS_PRETEND-"false"}"
@@ -457,6 +457,12 @@ main() {
   clean="${GLUS_CLEAN-"false"}"
 
   # Add go lang packages for update
+  binary="${GLUS_BINARY-"false"}"
+
+  # Sets
+  #
+
+  # Add go lang packages for update
   go="${GLUS_GO-"false"}"
 
   # Add kernel modules for update
@@ -465,26 +471,33 @@ main() {
   # Add live packages for update
   live="${GLUS_LIVE-"false"}"
 
+  # Add this packages for update
+  packages="${GLUS_PACKAGES-""}"
+
   # Compile security relevant packages
   security="${GLUS_SECURITY-"true"}"
 
-  # Compile only system core
-  system="${GLUS_SYSTEM-"false"}"
 
-  # Suppress non-error messages
-  quiet="${GLUS_QUIET-"false"}"
+  # Misc optoins
+  #
 
   # Add go lang packages for update
   color="${GLUS_COLOR-"true"}"
 
-  # Add go lang packages for update
-  binary="${GLUS_BINARY-"false"}"
-
   # Send mail for alerts and notifications.
   email="${GLUS_EMAIL-""}"
 
+  # Suppress non-error messages
+  quiet="${GLUS_QUIET-"false"}"
+
   # Show the commands to run
   debug="${GLUS_DEBUG-"false"}"
+
+  # Actions
+  #
+
+  # Compile only system core
+  system="false"
 
   # Compile all
   world="false"
