@@ -5,16 +5,21 @@ Gentoo Linux update system
 
 # Prerequisites
 
-* perl-cleaner (app-admin/perl-cleaner)
-  Find & rebuild packages and Perl header files broken due to a perl upgrade.
+* **perl-cleaner** (app-admin/perl-cleaner)
   
-* revdep-rebuild (app-portage/gentoolkit)
+  Find & rebuild packages and Perl header files broken due to a perl upgrade.
+
+  
+* **revdep-rebuild** (app-portage/gentoolkit)
+  
   Scans libraries and binaries for missing shared library dependencies and attempts to fix 
   them by re-emerging those broken binaries and shared libraries. 
   It is useful when an upgraded package breaks other software packages that are dependent
   upon the upgraded package.
   
-* mailx (virtual/mta)
+
+* **mailx** (virtual/mta)
+  
   Send mail for alerts and notifications.
 
 # Git Installation
