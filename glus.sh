@@ -254,7 +254,7 @@ showHelp() {
 	  Usage: glus [--full|--world] [OPTION]...
 	  Keep your gentoo linux up to date, update security problems daily
 	  and check that it is correct.%NL
-	  Options:
+	  PORTAGE OPTIONS:
      -S, --[no-]sync, \${GLUS_SYNC}
         Sync portage.
         (default: ${sync})%NL
@@ -270,31 +270,15 @@ showHelp() {
      -C --[no-]clean, \${GLUS_CLEAN}
         Clean packages and source files after compile.
         (default: ${clean?})%NL
-     --[no-]debug, \${GLUS_DEBUG}
-        Show the commands to run.
-        (default: ${debug?})%NL
      -f, --[no-]fetch, \${GLUS_FETCH}
         Only download, no compile or install.
         (default: ${fetch?})%NL
-     -q, --[no-]quiet, \${GLUS_QUIET}
-        Suppress non-error messages.
-        (default: ${quiet?})%NL
      -b, --binary <auto|autoonly|true|false|only>, \${GLUS_BINARY}
         Use binary packages for true or auto.
         Force use only binary packages for only option selected.
         (default: ${binary?})%NL
-     -x, --color <auto|true|false>, \${GLUS_COLOR}
-        Colorize the output.
-        (default: ${color?})%NL
-     --email <email> \${GLUS_EMAIL}
-        Send mail for alerts and notifications.
-        (default: "${email?}")%NL
-     -v, --version
-        Show version number and quit.%NL
-     -h, --help
-        Show this help and quit.%NL
 
-	  SETS
+	  SETS:
      -p --packages <PACKAGES>, \${GLUS_PACKAGES}
         Add this packages for update.
         (default: "${packages}")%NL
@@ -311,7 +295,7 @@ showHelp() {
         Compile security relevant packages (daily process, for example).
         (default: ${security?})%NL
 
-	  ACTIONS
+	  ACTIONS:
      --[no-]system
         Compile only system core (weekly process, for example).
         (default: ${system?})%NL
@@ -319,6 +303,24 @@ showHelp() {
         Compile only system core (monthly process, for example).%NL
      --full
         Recompile the entire system (annual process, for example).%NL
+
+    MISC OPTIONS:
+     --[no-]debug, \${GLUS_DEBUG}
+        Show the commands to run.
+        (default: ${debug?})%NL
+     -q, --[no-]quiet, \${GLUS_QUIET}
+        Suppress non-error messages.
+        (default: ${quiet?})%NL
+     -x, --color <auto|true|false>, \${GLUS_COLOR}
+        Colorize the output.
+        (default: ${color?})%NL
+     --email <email> \${GLUS_EMAIL}
+        Send mail for alerts and notifications.
+        (default: "${email?}")%NL
+     -v, --version
+        Show version number and quit.%NL
+     -h, --help
+        Show this help and quit.%NL
 
     Hooks:
       GLUS_BEFORE_SYNC: "${GLUS_BEFORE_SYNC}"
@@ -478,7 +480,7 @@ main() {
   security="${GLUS_SECURITY-"true"}"
 
 
-  # Misc optoins
+  # Misc options
   #
 
   # Add go lang packages for update
