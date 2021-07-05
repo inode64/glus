@@ -5,7 +5,7 @@ SHELL := /bin/sh
 DESTDIR ?=/usr/local
 
 exec_prefix ?= $(DESTDIR)
-sbindir ?= $(exec_prefix)/sbin
+sbindir ?= $(exec_prefix)/usr/sbin
 gentoodir ?= $(DESTDIR)/etc/portage/
 
 INSTALL ?= install
