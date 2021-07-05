@@ -3,6 +3,18 @@ Gentoo Linux update system
 
  Keep your gentoo linux up to date, update security problems daily and check that it is correct.
 
+
+# Features
+
+* Unified all processes to update the gentoo system periodically to keep it up to date with the latest security patches, portage, base system or full system.
+  
+* Check the system to repair programs with broken libraries.
+
+* Update perl packages.
+
+* Solve problems with upgrade python from older versions, error: **no python-exec wrapper executable found** ( https://forums.gentoo.org/viewtopic-t-1109544-start-0.html )
+
+
 # Prerequisites
 
 * **perl-cleaner** (app-admin/perl-cleaner)
@@ -32,6 +44,7 @@ curl -o /usr/sbin/glus.sh 'https://raw.githubusercontent.com/inode64/glus/main/g
   && chmod 755 /usr/sbin/glus.sh
 curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/main/glus.conf'
 ```
+
 # Help
 
 ```
