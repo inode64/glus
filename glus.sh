@@ -7,6 +7,11 @@
 
 # TODO: Use different forms to send mail (https://linuxhint.com/bash_script_send_email)
 
+# Check if it is running other instances of glus.sh
+if [ $(pgrep -c glus.sh) -gt 1 ]; then
+  exit 0
+fi
+
 export LC_ALL='C'
 
 # Define system configuration file.
@@ -41,6 +46,7 @@ clean_portage_dir() {
     return
   fi
 
+  # Check if it is running other instances of emerge before deleting temporary files
   # shellcheck disable=SC2046
   if [ $(pgrep -c emerge) -eq 0 ]; then
     rm -rf /var/tmp/portage/* 2>/dev/null
