@@ -16,7 +16,7 @@ INSTALL_DATA ?= $(INSTALL) -m 644
 install:
 	mkdir -p '$(sbindir)' '$(gentoodir)'
 	$(INSTALL_PROGRAM) ./glus.sh '$(sbindir)'/glus.sh
-	$(INSTALL_PROGRAM) ./glus.conf '$(gentoodir)'glus.conf
+	$(INSTALL_DATA) ./glus.conf '$(gentoodir)'glus.conf
 
 uninstall:
 	rm -f '$(sbindir)'/glus.sh

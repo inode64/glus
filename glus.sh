@@ -5,9 +5,9 @@
 # License:    MIT, https://opensource.org/licenses/MIT
 # Repository: https://github.com/inode64/glus
 
-# TODO: Use different forms to send mail (https://linuxhint.com/bash_script_send_email)
+# TODO: Use different ways to send mail (https://linuxhint.com/bash_script_send_email)
 
-# Check if it is running other instances of glus.sh
+# Check if other instances of glus.sh are running
 if [ $(pgrep -c glus.sh) -gt 1 ]; then
   exit 0
 fi
@@ -40,13 +40,13 @@ cleanup() {
 
 errors=0
 
-# Remove Unnecessary files in /var/tmp/portage
+# Remove unnecessary files in /var/tmp/portage
 clean_portage_dir() {
   if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
     return
   fi
 
-  # Check if it is running other instances of emerge before deleting temporary files
+  # Check if other instances of emerge are running before deleting temporary files
   # shellcheck disable=SC2046
   if [ $(pgrep -c emerge) -eq 0 ]; then
     rm -rf /var/tmp/portage/* 2>/dev/null
@@ -280,7 +280,7 @@ showHelp() {
         Only download, no compile or install.
         (default: ${fetch?})%NL
      -b, --binary <auto|autoonly|true|false|only>, \${GLUS_BINARY}
-        Use binary packages for true or auto.
+        Use binary packages.
         Force use only binary packages for only option selected.
         (default: ${binary?})%NL
 
@@ -464,7 +464,7 @@ main() {
   # Clean packages and source files after compile.
   clean="${GLUS_CLEAN-"false"}"
 
-  # Add go lang packages for update
+  # Use binary packages
   binary="${GLUS_BINARY-"false"}"
 
   # Sets

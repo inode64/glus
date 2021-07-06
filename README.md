@@ -1,12 +1,12 @@
 # Glus
 Gentoo Linux update system
 
- Keep your gentoo linux up to date, update security problems daily and check that it is correct.
+ Keep your gentoo linux up to date, update security problems daily and check that everything is correct.
 
 
 # Features
 
-* Unified all processes to update the gentoo system periodically to keep it up to date with the latest security patches, portage, base system or full system.
+* Unify all processes to update the gentoo system periodically to keep it up to date with the latest security patches, portage, base system or full system.
   
 * Check the system to repair programs with broken libraries.
 
@@ -74,7 +74,7 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
         (default: false)
 
      -b, --binary <auto|autoonly|true|false|only>, ${GLUS_BINARY}
-        Use binary packages for true or auto.
+        Use binary packages.
         Force use only binary packages for only option selected.
         (default: false)
 
@@ -140,7 +140,7 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
 # Usage
 
 The default behavior of Glus can be adjusted with multiple options. Use the --help option for the full list.
-It by default Glus sync the portage and update the security packages with
+By default, Glus sync the portage and update the security packages with:
 ```
 glus.sh
 ```
@@ -166,5 +166,5 @@ glus.sh --world
 * Update empty tree world and debug 
 
 ```
-glus.sh --world --debug
+glus.sh --full --debug
 ```
