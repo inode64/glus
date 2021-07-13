@@ -652,8 +652,10 @@ main() {
     command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
 
     if [ "${check:?}" = 'true' ]; then
-      # Check system integrity
+      # Check system integrity: Reverse Dependency Rebuilder
       command "revdep-rebuild -- -v ${color} --fail-clean y${binary}${pretend}"
+
+      # TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
     fi
 
     if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
