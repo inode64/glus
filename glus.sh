@@ -9,7 +9,7 @@
 
 # Check if other instances of glus.sh are running
 if [ $(pgrep -c glus.sh) -gt 1 ]; then
-  exit 0
+	exit 0
 fi
 
 export LC_ALL='C'
@@ -26,334 +26,334 @@ declare -r LOGS
 
 # Remove temporary files on exit.
 cleanup() {
-  ret="$?"
-  rm -rf "${LOGS}"
-  trap - EXIT
-  exit "${ret:?}"
+	ret="$?"
+	rm -rf "${LOGS}"
+	trap - EXIT
+	exit "${ret:?}"
 }
 {
-  trap cleanup EXIT || :
-  trap cleanup TERM || :
-  trap cleanup INT || :
-  trap cleanup HUP || :
+	trap cleanup EXIT || :
+	trap cleanup TERM || :
+	trap cleanup INT || :
+	trap cleanup HUP || :
 } 2>/dev/null
 
 errors=0
 
 # Remove unnecessary files in /var/tmp/portage
 clean_portage_dir() {
-  if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
-    return
-  fi
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+		return
+	fi
 
-  # Check if other instances of emerge are running before deleting temporary files
-  # shellcheck disable=SC2046
-  if [ $(pgrep -c emerge) -eq 0 ]; then
-    rm -rf /var/tmp/portage/* 2>/dev/null
-  fi
+	# Check if other instances of emerge are running before deleting temporary files
+	# shellcheck disable=SC2046
+	if [ $(pgrep -c emerge) -eq 0 ]; then
+		rm -rf /var/tmp/portage/* 2>/dev/null
+	fi
 }
 
 secs_to_human() {
-  local result
+	local result
 
-  ((result = $(date +%s) - ${1}))
+	((result = $(date +%s) - ${1}))
 
-  echo "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
+	echo "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
 }
 
 LastBinutils() {
-  if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
-    return
-  fi
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+		return
+	fi
 
-  local last
+	local last
 
-  last=$(/usr/bin/binutils-config -l 2>/dev/null | wc | awk '{print $1}')
+	last=$(/usr/bin/binutils-config -l 2>/dev/null | wc | awk '{print $1}')
 
-  /usr/bin/binutils-config -C "${last}"
-  /usr/sbin/env-update 2>/dev/null
+	/usr/bin/binutils-config -C "${last}"
+	/usr/sbin/env-update 2>/dev/null
 
-  . /etc/profile
+	. /etc/profile
 
-  return "${last}"
+	return "${last}"
 }
 
 LastGCC() {
-  if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
-    return
-  fi
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+		return
+	fi
 
-  local last
+	local last
 
-  last=$(/usr/bin/gcc-config -l 2>/dev/null | wc | awk '{print $1}')
+	last=$(/usr/bin/gcc-config -l 2>/dev/null | wc | awk '{print $1}')
 
-  /usr/bin/gcc-config -C "${last}"
-  /usr/sbin/env-update 2>/dev/null
+	/usr/bin/gcc-config -C "${last}"
+	/usr/sbin/env-update 2>/dev/null
 
-  . /etc/profile
+	. /etc/profile
 
-  return "${last}"
+	return "${last}"
 }
 
 UpdateDevel() {
-  if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
-    return
-  fi
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+		return
+	fi
 
-  etc-update -p
+	etc-update -p
 
-  LastBinutils
-  LastGCC
+	LastBinutils
+	LastGCC
 
-  # We update 2 times in case the new python does not exist yet
-  eselect python update --python3
-  etc-update --automode -5 /etc/python-exec
-  eselect python update --python3
+	# We update 2 times in case the new python does not exist yet
+	eselect python update --python3
+	etc-update --automode -5 /etc/python-exec
+	eselect python update --python3
 }
 
 # Parse command line options.
 optParse() {
-  while [ "${#}" -gt '0' ]; do
-    case "${1?}" in
-    # Short options that accept an argument need a "*" in their pattern because they can be
-    # found in the "-A<value>" form.
-    '-S' | '--sync' | '--no-sync')
-      optArgBool "${@-}"
-      sync="${optArg:?}"
-      ;;
-    '-e' | '--exclude')
-      optArgStr "${@-}"
-      exclude="${optArg:?}"
-      ;;
-    '-p' | '--packages')
-      optArgStr "${@-}"
-      packages="${optArg:?}"
-      ;;
-    '-P' | '--pretend' | '--no-pretend')
-      optArgBool "${@-}"
-      pretend="${optArg:?}"
-      ;;
-    '-c' | '--check' | '--no-check')
-      optArgBool "${@-}"
-      check="${optArg:?}"
-      ;;
-    '-C' | '--clean' | '--no-clean')
-      optArgBool "${@-}"
-      clean="${optArg:?}"
-      ;;
-    '-g' | '--go' | '--no-go')
-      optArgBool "${@-}"
-      go="${optArg:?}"
-      ;;
-    '-m' | '--modules' | '--no-modules')
-      optArgBool "${@-}"
-      modules="${optArg:?}"
-      ;;
-    '-l' | '--live' | '--no-live')
-      optArgBool "${@-}"
-      live="${optArg:?}"
-      ;;
-    '-s' | '--security' | '--no-security')
-      optArgBool "${@-}"
-      security="${optArg:?}"
-      ;;
-    '--system' | '--no-system')
-      optArgBool "${@-}"
-      system="${optArg:?}"
-      ;;
-    '--world')
-      optArgBool "${@-}"
-      world="${optArg:?}"
-      ;;
-    '--full')
-      optArgBool "${@-}"
-      full="${optArg:?}"
-      ;;
-    '-f' | '--fetch' | '--no-fetch')
-      optArgBool "${@-}"
-      fetch="${optArg:?}"
-      ;;
-    '--debug')
-      optArgBool "${@-}"
-      debug="${optArg:?}"
-      ;;
-    '-b' | '--binary' | '--no-binary')
-      optArgStr "${@-}"
-      binary="${optArg:?}"
-      ;;
-    '-x'* | '--color')
-      optArgStr "${@-}"
-      color="${optArg?}"
-      shift "${optShift:?}"
-      ;;
-    '-email')
-      optArgStr "${@-}"
-      email="${optArg:?}"
-      ;;
-    '-v' | '--version') showVersion ;;
-    '-h' | '--help') showHelp ;;
-    # If "--" is found, the remaining positional arguments are saved and the parsing ends.
-    --)
-      shift
-      posArgs="${posArgs-} ${*-}"
-      break
-      ;;
-    # If a long option in the form "--opt=value" is found, it is split into "--opt" and "value".
-    --*=*)
-      optSplitEquals "${@-}"
-      shift
-      set -- "${optName:?}" "${optArg?}" "${@-}"
-      continue
-      ;;
-    # If an option did not match any pattern, an error is thrown.
-    -? | --*) optDie "Illegal option ${1:?}" ;;
-    # If multiple short options in the form "-AB" are found, they are split into "-A" and "-B".
-    -?*)
-      optSplitShort "${@-}"
-      shift
-      set -- "${optAName:?}" "${optBName:?}" "${@-}"
-      continue
-      ;;
-    # If a positional argument is found, it is saved.
-    *) posArgs="${posArgs-} ${1?}" ;;
-    esac
-    shift
-  done
+	while [ "${#}" -gt '0' ]; do
+		case "${1?}" in
+		# Short options that accept an argument need a "*" in their pattern because they can be
+		# found in the "-A<value>" form.
+		'-S' | '--sync' | '--no-sync')
+			optArgBool "${@-}"
+			sync="${optArg:?}"
+			;;
+		'-e' | '--exclude')
+			optArgStr "${@-}"
+			exclude="${optArg:?}"
+			;;
+		'-p' | '--packages')
+			optArgStr "${@-}"
+			packages="${optArg:?}"
+			;;
+		'-P' | '--pretend' | '--no-pretend')
+			optArgBool "${@-}"
+			pretend="${optArg:?}"
+			;;
+		'-c' | '--check' | '--no-check')
+			optArgBool "${@-}"
+			check="${optArg:?}"
+			;;
+		'-C' | '--clean' | '--no-clean')
+			optArgBool "${@-}"
+			clean="${optArg:?}"
+			;;
+		'-g' | '--go' | '--no-go')
+			optArgBool "${@-}"
+			go="${optArg:?}"
+			;;
+		'-m' | '--modules' | '--no-modules')
+			optArgBool "${@-}"
+			modules="${optArg:?}"
+			;;
+		'-l' | '--live' | '--no-live')
+			optArgBool "${@-}"
+			live="${optArg:?}"
+			;;
+		'-s' | '--security' | '--no-security')
+			optArgBool "${@-}"
+			security="${optArg:?}"
+			;;
+		'--system' | '--no-system')
+			optArgBool "${@-}"
+			system="${optArg:?}"
+			;;
+		'--world')
+			optArgBool "${@-}"
+			world="${optArg:?}"
+			;;
+		'--full')
+			optArgBool "${@-}"
+			full="${optArg:?}"
+			;;
+		'-f' | '--fetch' | '--no-fetch')
+			optArgBool "${@-}"
+			fetch="${optArg:?}"
+			;;
+		'--debug')
+			optArgBool "${@-}"
+			debug="${optArg:?}"
+			;;
+		'-b' | '--binary' | '--no-binary')
+			optArgStr "${@-}"
+			binary="${optArg:?}"
+			;;
+		'-x'* | '--color')
+			optArgStr "${@-}"
+			color="${optArg?}"
+			shift "${optShift:?}"
+			;;
+		'-email')
+			optArgStr "${@-}"
+			email="${optArg:?}"
+			;;
+		'-v' | '--version') showVersion ;;
+		'-h' | '--help') showHelp ;;
+		# If "--" is found, the remaining positional arguments are saved and the parsing ends.
+		--)
+			shift
+			posArgs="${posArgs-} ${*-}"
+			break
+			;;
+		# If a long option in the form "--opt=value" is found, it is split into "--opt" and "value".
+		--*=*)
+			optSplitEquals "${@-}"
+			shift
+			set -- "${optName:?}" "${optArg?}" "${@-}"
+			continue
+			;;
+		# If an option did not match any pattern, an error is thrown.
+		-? | --*) optDie "Illegal option ${1:?}" ;;
+		# If multiple short options in the form "-AB" are found, they are split into "-A" and "-B".
+		-?*)
+			optSplitShort "${@-}"
+			shift
+			set -- "${optAName:?}" "${optBName:?}" "${@-}"
+			continue
+			;;
+		# If a positional argument is found, it is saved.
+		*) posArgs="${posArgs-} ${1?}" ;;
+		esac
+		shift
+	done
 }
 
 optSplitShort() {
-  optAName="${1%"${1#??}"}"
-  optBName="-${1#??}"
+	optAName="${1%"${1#??}"}"
+	optBName="-${1#??}"
 }
 
 optSplitEquals() {
-  optName="${1%="${1#--*=}"}"
-  optArg="${1#--*=}"
+	optName="${1%="${1#--*=}"}"
+	optArg="${1#--*=}"
 }
 
 optArgStr() {
-  if [ -n "${1#??}" ] && [ "${1#--}" = "${1:?}" ]; then
-    optArg="${1#??}"
-    optShift='0'
-  elif [ -n "${2+x}" ]; then
-    optArg="${2-}"
-    optShift='1'
-  else optDie "No argument for ${1:?} option"; fi
+	if [ -n "${1#??}" ] && [ "${1#--}" = "${1:?}" ]; then
+		optArg="${1#??}"
+		optShift='0'
+	elif [ -n "${2+x}" ]; then
+		optArg="${2-}"
+		optShift='1'
+	else optDie "No argument for ${1:?} option"; fi
 }
 
 optArgBool() {
-  if [ "${1#--no-}" = "${1:?}" ]; then
-    optArg='true'
-  else optArg='false'; fi
+	if [ "${1#--no-}" = "${1:?}" ]; then
+		optArg='true'
+	else optArg='false'; fi
 }
 
 optDie() {
-  printf '%s\n' "${@-}" "Try 'glus --help' for more information" >&2
-  exit 2
+	printf '%s\n' "${@-}" "Try 'glus --help' for more information" >&2
+	exit 2
 }
 
 # Show help and quit.
 showHelp() {
-  printf '%s\n' "$(
-    sed -e 's/%NL/\n/g' <<-EOF
-	  Gentoo Linux update system%NL
-	  Usage: glus [--full|--world] [OPTION]...
-	  Keep your gentoo linux up to date, update security problems daily
-	  and check that it is correct.%NL
-	  PORTAGE OPTIONS:
-     -S, --[no-]sync, \${GLUS_SYNC}
-        Sync portage.
-        (default: ${sync})%NL
-     -e, --exclude <EXCLUDE>, \${GLUS_EXCLUDE}
-        Exclude packages.
-        (default: "${exclude}")%NL
-     -P --[no-]pretend, \${GLUS_PRETEND}
-        Instead of actually performing the merge, simply display what *would* have been installed if --pretend weren't used.
-        (default: "${pretend}")%NL
-     -c --[no-]check, \${GLUS_CHECK}
-        Check the system.
-        (default: ${check?})%NL
-     -C --[no-]clean, \${GLUS_CLEAN}
-        Clean packages and source files after compile.
-        (default: ${clean?})%NL
-     -f, --[no-]fetch, \${GLUS_FETCH}
-        Only download, no compile or install.
-        (default: ${fetch?})%NL
-     -b, --binary <auto|autoonly|true|false|only>, \${GLUS_BINARY}
-        Use binary packages.
-        Force use only binary packages for only option selected.
-        (default: ${binary?})%NL
+	printf '%s\n' "$(
+		sed -e 's/%NL/\n/g' <<-EOF
+			  Gentoo Linux update system%NL
+			  Usage: glus [--full|--world] [OPTION]...
+			  Keep your gentoo linux up to date, update security problems daily
+			  and check that it is correct.%NL
+			  PORTAGE OPTIONS:
+	     -S, --[no-]sync, \${GLUS_SYNC}
+	        Sync portage.
+	        (default: ${sync})%NL
+	     -e, --exclude <EXCLUDE>, \${GLUS_EXCLUDE}
+	        Exclude packages.
+	        (default: "${exclude}")%NL
+	     -P --[no-]pretend, \${GLUS_PRETEND}
+	        Instead of actually performing the merge, simply display what *would* have been installed if --pretend weren't used.
+	        (default: "${pretend}")%NL
+	     -c --[no-]check, \${GLUS_CHECK}
+	        Check the system.
+	        (default: ${check?})%NL
+	     -C --[no-]clean, \${GLUS_CLEAN}
+	        Clean packages and source files after compile.
+	        (default: ${clean?})%NL
+	     -f, --[no-]fetch, \${GLUS_FETCH}
+	        Only download, no compile or install.
+	        (default: ${fetch?})%NL
+	     -b, --binary <auto|autoonly|true|false|only>, \${GLUS_BINARY}
+	        Use binary packages.
+	        Force use only binary packages for only option selected.
+	        (default: ${binary?})%NL
 
-	  SETS:
-     -p --packages <PACKAGES>, \${GLUS_PACKAGES}
-        Add this packages for update.
-        (default: "${packages}")%NL
-     -g --[no-]go, \${GLUS_GO}
-        Add go lang packages for update.
-        (default: ${go?})%NL
-     -m --[no-]modules, \${GLUS_MODULES}
-        Add kernel modules for update.
-        (default: ${modules?})%NL
-     -l --[no-]live, \${GLUS_LIVE}
-        Add live packages for update. (force compile)
-        (default: ${live?})%NL
-     -s --[no-]security, \${GLUS_SECURITY}
-        Compile security relevant packages (daily process, for example).
-        (default: ${security?})%NL
+			  SETS:
+	     -p --packages <PACKAGES>, \${GLUS_PACKAGES}
+	        Add this packages for update.
+	        (default: "${packages}")%NL
+	     -g --[no-]go, \${GLUS_GO}
+	        Add go lang packages for update.
+	        (default: ${go?})%NL
+	     -m --[no-]modules, \${GLUS_MODULES}
+	        Add kernel modules for update.
+	        (default: ${modules?})%NL
+	     -l --[no-]live, \${GLUS_LIVE}
+	        Add live packages for update. (force compile)
+	        (default: ${live?})%NL
+	     -s --[no-]security, \${GLUS_SECURITY}
+	        Compile security relevant packages (daily process, for example).
+	        (default: ${security?})%NL
 
-	  ACTIONS:
-     --[no-]system
-        Compile only system core (weekly process, for example).
-        (default: ${system?})%NL
-     --world
-        Compile only system core (monthly process, for example).%NL
-     --full
-        Recompile the entire system (annual process, for example).%NL
+			  ACTIONS:
+	     --[no-]system
+	        Compile only system core (weekly process, for example).
+	        (default: ${system?})%NL
+	     --world
+	        Compile only system core (monthly process, for example).%NL
+	     --full
+	        Recompile the entire system (annual process, for example).%NL
 
-    MISC OPTIONS:
-     --[no-]debug, \${GLUS_DEBUG}
-        Show the commands to run.
-        (default: ${debug?})%NL
-     -q, --[no-]quiet, \${GLUS_QUIET}
-        Suppress non-error messages.
-        (default: ${quiet?})%NL
-     -x, --color <auto|true|false>, \${GLUS_COLOR}
-        Colorize the output.
-        (default: ${color?})%NL
-     --email <email> \${GLUS_EMAIL}
-        Send mail for alerts and notifications.
-        (default: "${email?}")%NL
-     -v, --version
-        Show version number and quit.%NL
-     -h, --help
-        Show this help and quit.%NL
+	    MISC OPTIONS:
+	     --[no-]debug, \${GLUS_DEBUG}
+	        Show the commands to run.
+	        (default: ${debug?})%NL
+	     -q, --[no-]quiet, \${GLUS_QUIET}
+	        Suppress non-error messages.
+	        (default: ${quiet?})%NL
+	     -x, --color <auto|true|false>, \${GLUS_COLOR}
+	        Colorize the output.
+	        (default: ${color?})%NL
+	     --email <email> \${GLUS_EMAIL}
+	        Send mail for alerts and notifications.
+	        (default: "${email?}")%NL
+	     -v, --version
+	        Show version number and quit.%NL
+	     -h, --help
+	        Show this help and quit.%NL
 
-    Hooks:
-      GLUS_BEFORE_SYNC: "${GLUS_BEFORE_SYNC}"
-      GLUS_AFTER_SYNC: "${GLUS_AFTER_SYNC}"
-      GLUS_BEFORE_COMPILE: "${GLUS_BEFORE_COMPILE}"
-      GLUS_AFTER_COMPILE: "${GLUS_AFTER_COMPILE}"
+	    Hooks:
+	      GLUS_BEFORE_SYNC: "${GLUS_BEFORE_SYNC}"
+	      GLUS_AFTER_SYNC: "${GLUS_AFTER_SYNC}"
+	      GLUS_BEFORE_COMPILE: "${GLUS_BEFORE_COMPILE}"
+	      GLUS_AFTER_COMPILE: "${GLUS_AFTER_COMPILE}"
 
-    Configuration file: ${sysConfFile}
-    Report bugs to: <$(getMetadata 'Repository')/issues>
-	EOF
-  )"
-  exit 0
+	    Configuration file: ${sysConfFile}
+	    Report bugs to: <$(getMetadata 'Repository')/issues>
+		EOF
+	)"
+	exit 0
 }
 
 getMetadata() { sed -ne 's|^# '"${1:?}"':[[:blank:]]*\(.\{1,\}\)$|\1|p' -- "${0:?}"; }
 
 # Show version number and quit.
 showVersion() {
-  printf '%s\n' "$(
-    cat <<-EOF
-		GLUS: $(getMetadata 'Version')
-		Author: $(getMetadata 'Author')
-		License: $(getMetadata 'License')
-		Repository: $(getMetadata 'Repository')
-	EOF
-  )"
-  exit 0
+	printf '%s\n' "$(
+		cat <<-EOF
+			GLUS: $(getMetadata 'Version')
+			Author: $(getMetadata 'Author')
+			License: $(getMetadata 'License')
+			Repository: $(getMetadata 'Repository')
+		EOF
+	)"
+	exit 0
 }
 
 # Pretty print methods.
@@ -364,315 +364,314 @@ printList() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-} ${COLOR_BCYAN-}
 
 # Compile
 compile() {
-  local try emerge
+	local try emerge
 
-  # Update binutils, gcc
-  UpdateDevel &>/dev/null
+	# Update binutils, gcc
+	UpdateDevel &>/dev/null
 
-  # shellcheck disable=SC2012
-  emerge=$(ls /usr/lib/python-exec/python*/emerge | sort -rV | head -n1)
-  try=3
+	# shellcheck disable=SC2012
+	emerge=$(ls /usr/lib/python-exec/python*/emerge | sort -rV | head -n1)
+	try=3
 
-  if [ ! "${pretend}" ]; then
-    # First try download all files
-    while true; do
-      # shellcheck disable=SC2048
-      if command "${emerge} -f -1 --keep-going --fail-clean y${color}${exclude}${EMERGE_OPTS} $*"; then
-        break
-      fi
+	if [ ! "${pretend}" ]; then
+		# First try download all files
+		while true; do
+			# shellcheck disable=SC2048
+			if command "${emerge} -f -1 --keep-going --fail-clean y${color}${exclude}${EMERGE_OPTS} $*"; then
+				break
+			fi
 
-      ((--try)) || break
-      sleep 300
-    done
-  fi
+			((--try)) || break
+			sleep 300
+		done
+	fi
 
-  if [ "${fetch:?}" = 'false' ]; then
-    # Compile
-    command "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*"
+	if [ "${fetch:?}" = 'false' ]; then
+		# Compile
+		command "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*"
 
-    # Update broken merges
-    command "emaint${pretend} merges"
+		# Update broken merges
+		command "emaint${pretend} merges"
 
-    # Update binutils, gcc
-    UpdateDevel &>/dev/null
-  fi
+		# Update binutils, gcc
+		UpdateDevel &>/dev/null
+	fi
 }
 
 command() {
-  printInfo "$@"
+	printInfo "$@"
 
-  if [ "${debug:?}" = 'true' ]; then
-    return
-  fi
+	if [ "${debug:?}" = 'true' ]; then
+		return
+	fi
 
-  local err temp_file
-  temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
+	local err temp_file
+	temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
 
-  if [ "${pretend}" ]; then
-    # shellcheck disable=SC2048
-    eval "$*" 2>/dev/null
-  else
-    if [ "${quiet:?}" = 'true' ]; then
-      # shellcheck disable=SC2048
-      eval "$*" &>"${temp_file}"
-    else
-      # shellcheck disable=SC2048
-      eval "$*" | tee "${temp_file}"
-    fi
-    err=$?
-    if [[ ${err} -ne 0 && ${email} ]]; then
-      ((++errors))
-      tail -n1000 "${temp_file}" | mailx -s "Gentoo update error: $*" "${email}"
-    fi
-  fi
+	if [ "${pretend}" ]; then
+		# shellcheck disable=SC2048
+		eval "$*" 2>/dev/null
+	else
+		if [ "${quiet:?}" = 'true' ]; then
+			# shellcheck disable=SC2048
+			eval "$*" &>"${temp_file}"
+		else
+			# shellcheck disable=SC2048
+			eval "$*" | tee "${temp_file}"
+		fi
+		err=$?
+		if [[ ${err} -ne 0 && ${email} ]]; then
+			((++errors))
+			tail -n1000 "${temp_file}" | mailx -s "Gentoo update error: $*" "${email}"
+		fi
+	fi
 }
 
 checkPKG() {
-  if grep -q ^PKGDIR= /etc/make.conf || grep -q ^PKGDIR= /etc/portage/make.conf; then
-    return 0
-  fi
+	if grep -q ^PKGDIR= /etc/make.conf || grep -q ^PKGDIR= /etc/portage/make.conf; then
+		return 0
+	fi
 
-  return 1
+	return 1
 }
 
 main() {
-  if [ -f "${sysConfFile}" ]; then
-    # shellcheck source=/etc/portage/glus.conf
-    set -a
-    . "${sysConfFile}"
-    set +a
-  fi
+	if [ -f "${sysConfFile}" ]; then
+		# shellcheck source=/etc/portage/glus.conf
+		set -a
+		. "${sysConfFile}"
+		set +a
+	fi
 
-  # Portage options
-  #
+	# Portage options
+	#
 
-  # Sync portage.
-  sync="${GLUS_SYNC-"true"}"
+	# Sync portage.
+	sync="${GLUS_SYNC-"true"}"
 
-  # Only fetch packages.
-  fetch="${GLUS_FETCH-"false"}"
+	# Only fetch packages.
+	fetch="${GLUS_FETCH-"false"}"
 
-  # Exclude packages.
-  exclude="${GLUS_EXCLUDE-""}"
+	# Exclude packages.
+	exclude="${GLUS_EXCLUDE-""}"
 
-  # Display what packages have been installed
-  pretend="${GLUS_PRETEND-"false"}"
+	# Display what packages have been installed
+	pretend="${GLUS_PRETEND-"false"}"
 
-  # Check the system
-  check="${GLUS_CHECK-"true"}"
+	# Check the system
+	check="${GLUS_CHECK-"true"}"
 
-  # Clean packages and source files after compile.
-  clean="${GLUS_CLEAN-"false"}"
+	# Clean packages and source files after compile.
+	clean="${GLUS_CLEAN-"false"}"
 
-  # Use binary packages
-  binary="${GLUS_BINARY-"false"}"
+	# Use binary packages
+	binary="${GLUS_BINARY-"false"}"
 
-  # Sets
-  #
+	# Sets
+	#
 
-  # Add go lang packages for update
-  go="${GLUS_GO-"false"}"
+	# Add go lang packages for update
+	go="${GLUS_GO-"false"}"
 
-  # Add kernel modules for update
-  modules="${GLUS_MODULES-"false"}"
+	# Add kernel modules for update
+	modules="${GLUS_MODULES-"false"}"
 
-  # Add live packages for update
-  live="${GLUS_LIVE-"false"}"
+	# Add live packages for update
+	live="${GLUS_LIVE-"false"}"
 
-  # Add this packages for update
-  packages="${GLUS_PACKAGES-""}"
+	# Add this packages for update
+	packages="${GLUS_PACKAGES-""}"
 
-  # Compile security relevant packages
-  security="${GLUS_SECURITY-"true"}"
+	# Compile security relevant packages
+	security="${GLUS_SECURITY-"true"}"
 
+	# Misc options
+	#
 
-  # Misc options
-  #
+	# Add go lang packages for update
+	color="${GLUS_COLOR-"true"}"
 
-  # Add go lang packages for update
-  color="${GLUS_COLOR-"true"}"
+	# Send mail for alerts and notifications.
+	email="${GLUS_EMAIL-""}"
 
-  # Send mail for alerts and notifications.
-  email="${GLUS_EMAIL-""}"
+	# Suppress non-error messages
+	quiet="${GLUS_QUIET-"false"}"
 
-  # Suppress non-error messages
-  quiet="${GLUS_QUIET-"false"}"
+	# Show the commands to run
+	debug="${GLUS_DEBUG-"false"}"
 
-  # Show the commands to run
-  debug="${GLUS_DEBUG-"false"}"
+	# Actions
+	#
 
-  # Actions
-  #
+	# Compile only system core
+	system="false"
 
-  # Compile only system core
-  system="false"
+	# Compile all
+	world="false"
 
-  # Compile all
-  world="false"
+	# Recompile the entire system
+	full="false"
 
-  # Recompile the entire system
-  full="false"
+	# Parse command line options.
+	# shellcheck disable=SC2086
+	{
+		optParse "${@-}"
+		set -- ${posArgs-} >/dev/null
+	}
 
-  # Parse command line options.
-  # shellcheck disable=SC2086
-  {
-    optParse "${@-}"
-    set -- ${posArgs-} >/dev/null
-  }
+	# Define terminal colors if the color option is enabled or in auto mode if STDOUT is attached to a TTY and the
+	# "NO_COLOR" variable is not set (https://no-color.org).
+	if [ "${color:?}" = 'true' ] || { [ "${color:?}" = 'auto' ] && [ -z "${NO_COLOR+x}" ] && [ -t 1 ]; }; then
+		COLOR_RESET="$({ exists tput && tput sgr0; } 2>/dev/null || printf '\033[0m')"
+		COLOR_BRED="$({ exists tput && tput bold && tput setaf 1; } 2>/dev/null || printf '\033[1;31m')"
+		COLOR_BGREEN="$({ exists tput && tput bold && tput setaf 2; } 2>/dev/null || printf '\033[1;32m')"
+		COLOR_BYELLOW="$({ exists tput && tput bold && tput setaf 3; } 2>/dev/null || printf '\033[1;33m')"
+		COLOR_BCYAN="$({ exists tput && tput bold && tput setaf 6; } 2>/dev/null || printf '\033[1;36m')"
+		color=""
+	else
+		color=" --color n"
+	fi
 
-  # Define terminal colors if the color option is enabled or in auto mode if STDOUT is attached to a TTY and the
-  # "NO_COLOR" variable is not set (https://no-color.org).
-  if [ "${color:?}" = 'true' ] || { [ "${color:?}" = 'auto' ] && [ -z "${NO_COLOR+x}" ] && [ -t 1 ]; }; then
-    COLOR_RESET="$({ exists tput && tput sgr0; } 2>/dev/null || printf '\033[0m')"
-    COLOR_BRED="$({ exists tput && tput bold && tput setaf 1; } 2>/dev/null || printf '\033[1;31m')"
-    COLOR_BGREEN="$({ exists tput && tput bold && tput setaf 2; } 2>/dev/null || printf '\033[1;32m')"
-    COLOR_BYELLOW="$({ exists tput && tput bold && tput setaf 3; } 2>/dev/null || printf '\033[1;33m')"
-    COLOR_BCYAN="$({ exists tput && tput bold && tput setaf 6; } 2>/dev/null || printf '\033[1;36m')"
-    color=""
-  else
-    color=" --color n"
-  fi
+	# Set "NO_STDOUT" variable if the quiet option is enabled (other methods will honor this variable).
+	if [ "${quiet:?}" = 'true' ]; then
+		NO_STDOUT='true'
+	fi
 
-  # Set "NO_STDOUT" variable if the quiet option is enabled (other methods will honor this variable).
-  if [ "${quiet:?}" = 'true' ]; then
-    NO_STDOUT='true'
-  fi
+	# Remove superfluous warnings in pretend
+	if [ "${pretend:?}" = 'true' ]; then
+		pretend=" -p"
+	else
+		pretend=""
+	fi
 
-  # Remove superfluous warnings in pretend
-  if [ "${pretend:?}" = 'true' ]; then
-    pretend=" -p"
-  else
-    pretend=""
-  fi
+	if [ "${exclude}" ]; then
+		exclude=" --exclude '${exclude}'"
+	fi
 
-  if [ "${exclude}" ]; then
-    exclude=" --exclude '${exclude}'"
-  fi
+	# Check the header file.
+	case "${binary:?}" in
+	# If is false.
+	'false') binary="" ;;
+		# If is empty.
+	'true') binary=" -k" ;;
+		# If the value equals "only" or empty, use pkg.
+	'only') binary=" -K" ;;
+		# If the value equals "only", use pkgonly.
+	'auto')
+		if checkPKG; then
+			echo "ok"
+			binary=" -k"
+		else
+			binary=""
+		fi
+		;;
+	'autoonly')
+		if checkPKG; then
+			binary=" -K"
+		else
+			binary=""
+		fi
+		;;
+	# If the file does not exist, throw an error.
+	*) [ -e "${binary:?}" ] || {
+		printError "No such binary option: ${headerFile:?}"
+		exit 1
+	} ;;
+	esac
 
-  # Check the header file.
-  case "${binary:?}" in
-  # If is false.
-  'false') binary="" ;;
-    # If is empty.
-  'true') binary=" -k" ;;
-    # If the value equals "only" or empty, use pkg.
-  'only') binary=" -K" ;;
-    # If the value equals "only", use pkgonly.
-  'auto')
-    if checkPKG; then
-      echo "ok"
-      binary=" -k"
-    else
-      binary=""
-    fi
-    ;;
-  'autoonly')
-    if checkPKG; then
-      binary=" -K"
-    else
-      binary=""
-    fi
-    ;;
-  # If the file does not exist, throw an error.
-  *) [ -e "${binary:?}" ] || {
-    printError "No such binary option: ${headerFile:?}"
-    exit 1
-  } ;;
-  esac
+	if [ "${sync:?}" = 'true' ]; then
+		if [ "${GLUS_BEFORE_SYNC}" ]; then
+			# Execute command before sync portage
+			command "${GLUS_BEFORE_SYNC}"
+		fi
 
-  if [ "${sync:?}" = 'true' ]; then
-    if [ "${GLUS_BEFORE_SYNC}" ]; then
-      # Execute command before sync portage
-      command "${GLUS_BEFORE_SYNC}"
-    fi
+		command "emaint -a sync"
 
-    command "emaint -a sync"
+		if [ "${GLUS_AFTER_SYNC}" ]; then
+			# Execute command after sync portage
+			command "${GLUS_AFTER_SYNC}"
+		fi
+	fi
 
-    if [ "${GLUS_AFTER_SYNC}" ]; then
-      # Execute command after sync portage
-      command "${GLUS_AFTER_SYNC}"
-    fi
-  fi
+	if [ "${GLUS_BEFORE_COMPILE}" ] && [ ! "${pretend}" ]; then
+		# Execute command before compile
+		command "${GLUS_BEFORE_COMPILE}"
+	fi
 
-  if [ "${GLUS_BEFORE_COMPILE}" ] && [ ! "${pretend}" ]; then
-    # Execute command before compile
-    command "${GLUS_BEFORE_COMPILE}"
-  fi
+	# Empty portage tmp dir
+	clean_portage_dir
 
-  # Empty portage tmp dir
-  clean_portage_dir
+	# First update the portage
+	compile "-u portage"
 
-  # First update the portage
-  compile "-u portage"
+	# Update the system base
+	if [ "${system:?}" = "true" ]; then
+		# First try compile all updates
+		compile "-uDN system"
+		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
+		compile "-u system"
+	fi
 
-  # Update the system base
-  if [ "${system:?}" = "true" ]; then
-    # First try compile all updates
-    compile "-uDN system"
-    # Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
-    compile "-u system"
-  fi
+	if [ "${world:?}" = "true" ]; then
+		compile "-uDN world --complete-graph=y --with-bdeps=y"
+	else
+		if [ "${full:?}" = "true" ]; then
+			compile "-ueDN world --complete-graph=y --with-bdeps=y"
+		else
+			# Force compile the live packages
+			if [ "${live:?}" = "true" ]; then
+				compile "@live-rebuild"
+			fi
 
-  if [ "${world:?}" = "true" ]; then
-    compile "-uDN world --complete-graph=y --with-bdeps=y"
-  else
-    if [ "${full:?}" = "true" ]; then
-      compile "-ueDN world --complete-graph=y --with-bdeps=y"
-    else
-      # Force compile the live packages
-      if [ "${live:?}" = "true" ]; then
-        compile "@live-rebuild"
-      fi
+			local sets
 
-      local sets
+			# Compile sets
+			sets="-u ${packages}"
+			if [ "${security:?}" = "true" ]; then
+				# Update security
+				sets="${sets} @security"
+			fi
+			if [ "${go:?}" = "true" ]; then
+				sets="${sets} @golang-rebuild"
+			fi
+			if [ "${modules:?}" = "true" ]; then
+				sets="${sets} @modules-rebuild"
+			fi
+			compile "${sets}"
+		fi
+	fi
 
-      # Compile sets
-      sets="-u ${packages}"
-      if [ "${security:?}" = "true" ]; then
-        # Update security
-        sets="${sets} @security"
-      fi
-      if [ "${go:?}" = "true" ]; then
-        sets="${sets} @golang-rebuild"
-      fi
-      if [ "${modules:?}" = "true" ]; then
-        sets="${sets} @modules-rebuild"
-      fi
-      compile "${sets}"
-    fi
-  fi
+	if [ "${fetch:?}" = 'false' ]; then
+		# Remove old packages
+		if [ "${clean:?}" = 'true' ]; then
+			command "emerge --depclean${pretend}${exclude}"
+		fi
 
-  if [ "${fetch:?}" = 'false' ]; then
-    # Remove old packages
-    if [ "${clean:?}" = 'true' ]; then
-      command "emerge --depclean${pretend}${exclude}"
-    fi
+		# Recompile all perl packages
+		command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
 
-    # Recompile all perl packages
-    command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
+		if [ "${check:?}" = 'true' ]; then
+			# Check system integrity: Reverse Dependency Rebuilder
+			command "revdep-rebuild -- -v ${color} --fail-clean y${binary}${pretend}"
 
-    if [ "${check:?}" = 'true' ]; then
-      # Check system integrity: Reverse Dependency Rebuilder
-      command "revdep-rebuild -- -v ${color} --fail-clean y${binary}${pretend}"
+			# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
+		fi
 
-      # TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
-    fi
+		if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
+			# Execute command after all
+			command "${GLUS_AFTER_COMPILE}"
+		fi
 
-    if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
-      # Execute command after all
-      command "${GLUS_AFTER_COMPILE}"
-    fi
+		# Check and fix problems in the world file
+		command "emaint${pretend} world"
 
-    # Check and fix problems in the world file
-    command "emaint${pretend} world"
-
-    if [ "${clean:?}" = 'true' ]; then
-      if [ "${binary}" ]; then
-        command "eclean -C -d${pretend} packages"
-      fi
-      command "eclean -C -d${pretend} distfiles"
-    fi
-  fi
+		if [ "${clean:?}" = 'true' ]; then
+			if [ "${binary}" ]; then
+				command "eclean -C -d${pretend} packages"
+			fi
+			command "eclean -C -d${pretend} distfiles"
+		fi
+	fi
 }
 
 main "${@-}"
