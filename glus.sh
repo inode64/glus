@@ -53,14 +53,6 @@ clean_portage_dir() {
 	fi
 }
 
-secs_to_human() {
-	local result
-
-	((result = $(date +%s) - ${1}))
-
-	echo "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
-}
-
 LastBinutils() {
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
 		return
@@ -362,6 +354,19 @@ printWarn() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BYELLOW
 printError() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BRED-}ERROR${COLOR_RESET-}] %s\n" "${@-}" >&2; }
 printList() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-} ${COLOR_BCYAN-}*${COLOR_RESET-} %s\n" "${@-}"; }
 
+startprocess() {
+	START=$(date +%s)
+	printList "$@"
+}
+
+stopprocess() {
+	local result
+
+	((result = $(date +%s) - START))
+
+	printList "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
+}
+
 # Compile
 compile() {
 	local try emerge
@@ -585,7 +590,9 @@ main() {
 			command "${GLUS_BEFORE_SYNC}"
 		fi
 
+		startprocess "*** Sync portage"
 		command "emaint -a sync"
+		stopprocess
 
 		if [ "${GLUS_AFTER_SYNC}" ]; then
 			# Execute command after sync portage
@@ -602,25 +609,35 @@ main() {
 	clean_portage_dir
 
 	# First update the portage
+	startprocess "*** Update portage"
 	compile "-u portage"
+	stopprocess
 
 	# Update the system base
 	if [ "${system:?}" = "true" ]; then
+		startprocess "*** Update system"
 		# First try compile all updates
 		compile "-uDN system"
 		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
 		compile "-u system"
+		stopprocess
 	fi
 
 	if [ "${world:?}" = "true" ]; then
+		startprocess "*** Update world"
 		compile "-uDN world --complete-graph=y --with-bdeps=y"
+		stopprocess
 	else
 		if [ "${full:?}" = "true" ]; then
+			startprocess "*** Update really world"
 			compile "-ueDN world --complete-graph=y --with-bdeps=y"
+			stopprocess
 		else
 			# Force compile the live packages
 			if [ "${live:?}" = "true" ]; then
+				startprocess "*** Update live packages"
 				compile "@live-rebuild"
+				stopprocess
 			fi
 
 			local sets
@@ -637,7 +654,10 @@ main() {
 			if [ "${modules:?}" = "true" ]; then
 				sets="${sets} @modules-rebuild"
 			fi
+
+			startprocess "*** Update sets"
 			compile "${sets}"
+			stopprocess
 		fi
 	fi
 
@@ -648,7 +668,9 @@ main() {
 		fi
 
 		# Recompile all perl packages
+		startprocess "*** Update perl packages"
 		command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
+		stopprocess
 
 		if [ "${check:?}" = 'true' ]; then
 			# Check system integrity: Reverse Dependency Rebuilder
