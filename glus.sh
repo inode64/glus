@@ -590,7 +590,7 @@ main() {
 			command "${GLUS_BEFORE_SYNC}"
 		fi
 
-		startprocess "*** Sync portage"
+		startprocess "Sync portage"
 		command "emaint -a sync"
 		stopprocess
 
@@ -609,13 +609,13 @@ main() {
 	clean_portage_dir
 
 	# First update the portage
-	startprocess "*** Update portage"
+	startprocess "Update portage"
 	compile "-u portage"
 	stopprocess
 
 	# Update the system base
 	if [ "${system:?}" = "true" ]; then
-		startprocess "*** Update system"
+		startprocess "Update system"
 		# First try compile all updates
 		compile "-uDN system"
 		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
@@ -624,18 +624,18 @@ main() {
 	fi
 
 	if [ "${world:?}" = "true" ]; then
-		startprocess "*** Update world"
+		startprocess "Update world"
 		compile "-uDN world --complete-graph=y --with-bdeps=y"
 		stopprocess
 	else
 		if [ "${full:?}" = "true" ]; then
-			startprocess "*** Update really world"
+			startprocess "Update really world"
 			compile "-ueDN world --complete-graph=y --with-bdeps=y"
 			stopprocess
 		else
 			# Force compile the live packages
 			if [ "${live:?}" = "true" ]; then
-				startprocess "*** Update live packages"
+				startprocess "Update live packages"
 				compile "@live-rebuild"
 				stopprocess
 			fi
@@ -655,7 +655,7 @@ main() {
 				sets="${sets} @modules-rebuild"
 			fi
 
-			startprocess "*** Update sets"
+			startprocess "Update sets"
 			compile "${sets}"
 			stopprocess
 		fi
@@ -668,7 +668,7 @@ main() {
 		fi
 
 		# Recompile all perl packages
-		startprocess "*** Update perl packages"
+		startprocess "Update perl packages"
 		command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
 		stopprocess
 
