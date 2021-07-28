@@ -1,9 +1,12 @@
 #!/bin/bash
-
+#
+# Gentoo Linux update system
+#
 # Version:    1.0.0
 # Author:     Francisco Javier Félix Belmonte <ffelix@inode64.com>
 # License:    MIT, https://opensource.org/licenses/MIT
 # Repository: https://github.com/inode64/glus
+
 
 # TODO: Use different ways to send mail (https://linuxhint.com/bash_script_send_email)
 
@@ -16,15 +19,25 @@ export LC_ALL='C'
 
 # Define system configuration file.
 if [ -z "${ETCDIR+x}" ]; then ETCDIR='/etc'; fi
-sysConfFile="${ETCDIR?}/portage/glus.conf"
+SYS_CONF_FILE="${ETCDIR?}/portage/glus.conf"
 
 declare -r ETCDIR
-declare -r sysConfFile
+declare -r SYS_CONF_FILE
 
 LOGS=$(mktemp -d)
 declare -r LOGS
 
+errors=0
+
+#######################################
 # Remove temporary files on exit.
+# Globals:
+#   None
+# Arguments:
+#   None
+# Outputs:
+#   None
+#######################################
 cleanup() {
 	ret="$?"
 	rm -rf "${LOGS}"
@@ -37,8 +50,6 @@ cleanup() {
 	trap cleanup INT || :
 	trap cleanup HUP || :
 } 2>/dev/null
-
-errors=0
 
 # Remove unnecessary files in /var/tmp/portage
 clean_portage_dir() {
@@ -53,7 +64,7 @@ clean_portage_dir() {
 	fi
 }
 
-LastBinutils() {
+Last_binutils() {
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
 		return
 	fi
@@ -70,7 +81,7 @@ LastBinutils() {
 	return "${last}"
 }
 
-LastGCC() {
+Last_gcc() {
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
 		return
 	fi
@@ -87,15 +98,15 @@ LastGCC() {
 	return "${last}"
 }
 
-UpdateDevel() {
+update_devel() {
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
 		return
 	fi
 
 	etc-update -p
 
-	LastBinutils
-	LastGCC
+	Last_binutils
+	Last_gcc
 
 	# We update 2 times in case the new python does not exist yet
 	eselect python update --python3
@@ -104,86 +115,86 @@ UpdateDevel() {
 }
 
 # Parse command line options.
-optParse() {
+opt_parse() {
 	while [ "${#}" -gt '0' ]; do
 		case "${1?}" in
 		# Short options that accept an argument need a "*" in their pattern because they can be
 		# found in the "-A<value>" form.
 		'-S' | '--sync' | '--no-sync')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			sync="${optArg:?}"
 			;;
 		'-e' | '--exclude')
-			optArgStr "${@-}"
+			opt_arg_str "${@-}"
 			exclude="${optArg:?}"
 			;;
 		'-p' | '--packages')
-			optArgStr "${@-}"
+			opt_arg_str "${@-}"
 			packages="${optArg:?}"
 			;;
 		'-P' | '--pretend' | '--no-pretend')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			pretend="${optArg:?}"
 			;;
 		'-c' | '--check' | '--no-check')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			check="${optArg:?}"
 			;;
 		'-C' | '--clean' | '--no-clean')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			clean="${optArg:?}"
 			;;
 		'-g' | '--go' | '--no-go')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			go="${optArg:?}"
 			;;
 		'-m' | '--modules' | '--no-modules')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			modules="${optArg:?}"
 			;;
 		'-l' | '--live' | '--no-live')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			live="${optArg:?}"
 			;;
 		'-s' | '--security' | '--no-security')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			security="${optArg:?}"
 			;;
 		'--system' | '--no-system')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			system="${optArg:?}"
 			;;
 		'--world')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			world="${optArg:?}"
 			;;
 		'--full')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			full="${optArg:?}"
 			;;
 		'-f' | '--fetch' | '--no-fetch')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			fetch="${optArg:?}"
 			;;
 		'--debug')
-			optArgBool "${@-}"
+			opt_arg_bool "${@-}"
 			debug="${optArg:?}"
 			;;
 		'-b' | '--binary' | '--no-binary')
-			optArgStr "${@-}"
+			opt_arg_str "${@-}"
 			binary="${optArg:?}"
 			;;
 		'-x'* | '--color')
-			optArgStr "${@-}"
+			opt_arg_str "${@-}"
 			color="${optArg?}"
 			shift "${optShift:?}"
 			;;
 		'-email')
-			optArgStr "${@-}"
+			opt_arg_str "${@-}"
 			email="${optArg:?}"
 			;;
-		'-v' | '--version') showVersion ;;
-		'-h' | '--help') showHelp ;;
+		'-v' | '--version') show_version ;;
+		'-h' | '--help') show_help ;;
 		# If "--" is found, the remaining positional arguments are saved and the parsing ends.
 		--)
 			shift
@@ -192,16 +203,16 @@ optParse() {
 			;;
 		# If a long option in the form "--opt=value" is found, it is split into "--opt" and "value".
 		--*=*)
-			optSplitEquals "${@-}"
+			opt_split_equals "${@-}"
 			shift
 			set -- "${optName:?}" "${optArg?}" "${@-}"
 			continue
 			;;
 		# If an option did not match any pattern, an error is thrown.
-		-? | --*) optDie "Illegal option ${1:?}" ;;
+		-? | --*) opt_die "Illegal option ${1:?}" ;;
 		# If multiple short options in the form "-AB" are found, they are split into "-A" and "-B".
 		-?*)
-			optSplitShort "${@-}"
+			opt_split_short "${@-}"
 			shift
 			set -- "${optAName:?}" "${optBName:?}" "${@-}"
 			continue
@@ -213,39 +224,39 @@ optParse() {
 	done
 }
 
-optSplitShort() {
+opt_split_short() {
 	optAName="${1%"${1#??}"}"
 	optBName="-${1#??}"
 }
 
-optSplitEquals() {
+opt_split_equals() {
 	optName="${1%="${1#--*=}"}"
 	optArg="${1#--*=}"
 }
 
-optArgStr() {
+opt_arg_str() {
 	if [ -n "${1#??}" ] && [ "${1#--}" = "${1:?}" ]; then
 		optArg="${1#??}"
 		optShift='0'
 	elif [ -n "${2+x}" ]; then
 		optArg="${2-}"
 		optShift='1'
-	else optDie "No argument for ${1:?} option"; fi
+	else opt_die "No argument for ${1:?} option"; fi
 }
 
-optArgBool() {
+opt_arg_bool() {
 	if [ "${1#--no-}" = "${1:?}" ]; then
 		optArg='true'
 	else optArg='false'; fi
 }
 
-optDie() {
+opt_die() {
 	printf '%s\n' "${@-}" "Try 'glus --help' for more information" >&2
 	exit 2
 }
 
 # Show help and quit.
-showHelp() {
+show_help() {
 	printf '%s\n' "$(
 		sed -e 's/%NL/\n/g' <<-EOF
 			  Gentoo Linux update system%NL
@@ -326,45 +337,45 @@ showHelp() {
 	      GLUS_BEFORE_COMPILE: "${GLUS_BEFORE_COMPILE}"
 	      GLUS_AFTER_COMPILE: "${GLUS_AFTER_COMPILE}"
 
-	    Configuration file: ${sysConfFile}
-	    Report bugs to: <$(getMetadata 'Repository')/issues>
+	    Configuration file: ${SYS_CONF_FILE}
+	    Report bugs to: <$(get_metadata 'Repository')/issues>
 		EOF
 	)"
 	exit 0
 }
 
-getMetadata() { sed -ne 's|^# '"${1:?}"':[[:blank:]]*\(.\{1,\}\)$|\1|p' -- "${0:?}"; }
+get_metadata() { sed -ne 's|^# '"${1:?}"':[[:blank:]]*\(.\{1,\}\)$|\1|p' -- "${0:?}"; }
 
 # Show version number and quit.
-showVersion() {
+show_version() {
 	printf '%s\n' "$(
 		cat <<-EOF
-			GLUS: $(getMetadata 'Version')
-			Author: $(getMetadata 'Author')
-			License: $(getMetadata 'License')
-			Repository: $(getMetadata 'Repository')
+			GLUS: $(get_metadata 'Version')
+			Author: $(get_metadata 'Author')
+			License: $(get_metadata 'License')
+			Repository: $(get_metadata 'Repository')
 		EOF
 	)"
 	exit 0
 }
 
 # Pretty print methods.
-printInfo() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-}[${COLOR_BGREEN-}INFO${COLOR_RESET-}] %s\n" "${@-}"; }
-printWarn() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BYELLOW-}WARN${COLOR_RESET-}] %s\n" "${@-}" >&2; }
-printError() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BRED-}ERROR${COLOR_RESET-}] %s\n" "${@-}" >&2; }
-printList() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-} ${COLOR_BCYAN-}*${COLOR_RESET-} %s\n" "${@-}"; }
+print_info() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-}[${COLOR_BGREEN-}INFO${COLOR_RESET-}] %s\n" "${@-}"; }
+print_warn() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BYELLOW-}WARN${COLOR_RESET-}] %s\n" "${@-}" >&2; }
+print_error() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BRED-}ERROR${COLOR_RESET-}] %s\n" "${@-}" >&2; }
+print_list() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-} ${COLOR_BCYAN-}*${COLOR_RESET-} %s\n" "${@-}"; }
 
-startprocess() {
+start_process() {
 	START=$(date +%s)
-	printInfo "$@"
+	print_info "$@"
 }
 
-stopprocess() {
+stop_process() {
 	local result
 
 	((result = $(date +%s) - START))
 
-	printInfo "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
+	print_info "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
 }
 
 # Compile
@@ -372,7 +383,7 @@ compile() {
 	local try emerge
 
 	# Update binutils, gcc
-	UpdateDevel &>/dev/null
+	update_devel &>/dev/null
 
 	# shellcheck disable=SC2012
 	emerge=$(ls /usr/lib/python-exec/python*/emerge | sort -rV | head -n1)
@@ -399,12 +410,12 @@ compile() {
 		command "emaint${pretend} merges"
 
 		# Update binutils, gcc
-		UpdateDevel &>/dev/null
+		update_devel &>/dev/null
 	fi
 }
 
 command() {
-	printInfo "$@"
+	print_info "$@"
 
 	if [ "${debug:?}" = 'true' ]; then
 		return
@@ -432,7 +443,7 @@ command() {
 	fi
 }
 
-checkPKG() {
+check_pkg() {
 	if grep -q ^PKGDIR= /etc/make.conf || grep -q ^PKGDIR= /etc/portage/make.conf; then
 		return 0
 	fi
@@ -441,10 +452,10 @@ checkPKG() {
 }
 
 main() {
-	if [ -f "${sysConfFile}" ]; then
+	if [ -f "${SYS_CONF_FILE}" ]; then
 		# shellcheck source=/etc/portage/glus.conf
 		set -a
-		. "${sysConfFile}"
+		. "${SYS_CONF_FILE}"
 		set +a
 	fi
 
@@ -520,7 +531,7 @@ main() {
 	# Parse command line options.
 	# shellcheck disable=SC2086
 	{
-		optParse "${@-}"
+		opt_parse "${@-}"
 		set -- ${posArgs-} >/dev/null
 	}
 
@@ -563,7 +574,7 @@ main() {
 	'only') binary=" -K" ;;
 		# If the value equals "only", use pkgonly.
 	'auto')
-		if checkPKG; then
+		if check_pkg; then
 			echo "ok"
 			binary=" -k"
 		else
@@ -571,7 +582,7 @@ main() {
 		fi
 		;;
 	'autoonly')
-		if checkPKG; then
+		if check_pkg; then
 			binary=" -K"
 		else
 			binary=""
@@ -579,7 +590,7 @@ main() {
 		;;
 	# If the file does not exist, throw an error.
 	*) [ -e "${binary:?}" ] || {
-		printError "No such binary option: ${headerFile:?}"
+		print_error "No such binary option: ${headerFile:?}"
 		exit 1
 	} ;;
 	esac
@@ -590,9 +601,9 @@ main() {
 			command "${GLUS_BEFORE_SYNC}"
 		fi
 
-		startprocess "Sync portage"
+		start_process "Sync portage"
 		command "emaint -a sync"
-		stopprocess
+		stop_process
 
 		if [ "${GLUS_AFTER_SYNC}" ]; then
 			# Execute command after sync portage
@@ -609,35 +620,35 @@ main() {
 	clean_portage_dir
 
 	# First update the portage
-	startprocess "Update portage"
+	start_process "Update portage"
 	compile "-u portage"
-	stopprocess
+	stop_process
 
 	# Update the system base
 	if [ "${system:?}" = "true" ]; then
-		startprocess "Update system"
+		start_process "Update system"
 		# First try compile all updates
 		compile "-uDN system"
 		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
 		compile "-u system"
-		stopprocess
+		stop_process
 	fi
 
 	if [ "${world:?}" = "true" ]; then
-		startprocess "Update world"
+		start_process "Update world"
 		compile "-uDN world --complete-graph=y --with-bdeps=y"
-		stopprocess
+		stop_process
 	else
 		if [ "${full:?}" = "true" ]; then
-			startprocess "Update really world"
+			start_process "Update really world"
 			compile "-ueDN world --complete-graph=y --with-bdeps=y"
-			stopprocess
+			stop_process
 		else
 			# Force compile the live packages
 			if [ "${live:?}" = "true" ]; then
-				startprocess "Update live packages"
+				start_process "Update live packages"
 				compile "@live-rebuild"
-				stopprocess
+				stop_process
 			fi
 
 			local sets
@@ -655,9 +666,9 @@ main() {
 				sets="${sets} @modules-rebuild"
 			fi
 
-			startprocess "Update sets"
+			start_process "Update sets"
 			compile "${sets}"
-			stopprocess
+			stop_process
 		fi
 	fi
 
@@ -668,9 +679,9 @@ main() {
 		fi
 
 		# Recompile all perl packages
-		startprocess "Update perl packages"
+		start_process "Update perl packages"
 		command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
-		stopprocess
+		stop_process
 
 		if [ "${check:?}" = 'true' ]; then
 			# Check system integrity: Reverse Dependency Rebuilder
