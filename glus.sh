@@ -356,7 +356,7 @@ printList() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-} ${COLOR_BCYAN-}
 
 startprocess() {
 	START=$(date +%s)
-	printList "$@"
+	printInfo "$@"
 }
 
 stopprocess() {
@@ -364,7 +364,7 @@ stopprocess() {
 
 	((result = $(date +%s) - START))
 
-	printList "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
+	printInfo "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
 }
 
 # Compile
