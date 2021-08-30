@@ -451,6 +451,24 @@ check_pkg() {
 	return 1
 }
 
+get_versions() {
+	# Check systemd
+	if [ -x /run/systemd/system ]; then
+		systemd_old=$(systemctl --version)
+	fi
+}
+
+change_versions() {
+	# Check systemd
+	if [ -x /run/systemd/system ]; then
+		systemd_new=$(systemctl --version)
+		if [ "$systemd_new" != "$systemd_old" ]; then
+			print_info "systemd has changed, reloading"
+			systemctl daemon-reexec
+		fi
+	fi
+}
+
 main() {
 	if [ -f "${SYS_CONF_FILE}" ]; then
 		# shellcheck source=/etc/portage/glus.conf
@@ -595,6 +613,8 @@ main() {
 	} ;;
 	esac
 
+	get_versions
+
 	if [ "${sync:?}" = 'true' ]; then
 		if [ "${GLUS_BEFORE_SYNC}" ]; then
 			# Execute command before sync portage
@@ -705,6 +725,9 @@ main() {
 			command "eclean -C -d${pretend} distfiles"
 		fi
 	fi
+
+	# Check if they have changed any programs and need to reload
+	change_versions
 }
 
 main "${@-}"
