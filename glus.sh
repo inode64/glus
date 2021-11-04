@@ -644,6 +644,11 @@ main() {
 	compile "-u portage"
 	stop_process
 
+	# Fix compile errors when /usr/include/crypt.h is missing
+	if [ ! -e /usr/include/crypt.h ]; then
+		compile "-1u sys-libs/libxcrypt"
+	fi
+
 	# Update the system base
 	if [ "${system:?}" = "true" ]; then
 		start_process "Update system"
