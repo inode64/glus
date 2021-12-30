@@ -710,7 +710,7 @@ main() {
 
 		if [ "${check:?}" = 'true' ]; then
 			# Check system integrity: Reverse Dependency Rebuilder
-			command "revdep-rebuild -- -v ${color} --fail-clean y${binary}${pretend}"
+			command "revdep-rebuild -i -v -- -v ${color} --fail-clean y${binary}${pretend}"
 
 			# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
 		fi
