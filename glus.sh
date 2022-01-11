@@ -11,6 +11,7 @@
 # TODO: Use different ways to send mail (https://linuxhint.com/bash_script_send_email)
 
 # Check if other instances of glus.sh are running
+# shellcheck disable=SC2046
 if [ $(pgrep -c glus.sh) -gt 1 ]; then
 	exit 0
 fi
@@ -39,7 +40,7 @@ errors=0
 #   None
 #######################################
 cleanup() {
-	ret="$?"
+	local ret="$?"
 	rm -rf "${LOGS}"
 	trap - EXIT
 	exit "${ret:?}"
@@ -459,6 +460,7 @@ get_versions() {
 }
 
 change_versions() {
+	local systemd_new
 	# Check systemd
 	if [ -x /run/systemd/system ]; then
 		systemd_new=$(systemctl --version)
@@ -471,8 +473,8 @@ change_versions() {
 
 main() {
 	if [ -f "${SYS_CONF_FILE}" ]; then
-		# shellcheck source=/etc/portage/glus.conf
 		set -a
+		# shellcheck source=/etc/portage/glus.conf
 		. "${SYS_CONF_FILE}"
 		set +a
 	fi
@@ -652,7 +654,7 @@ main() {
 	# Update the system base
 	if [ "${system:?}" = "true" ]; then
 		start_process "Update system"
-		# First try compile all updates
+		# First try to compile all updates
 		compile "-uDN system"
 		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
 		compile "-u system"
@@ -669,7 +671,7 @@ main() {
 			compile "-ueDN world --complete-graph=y --with-bdeps=y"
 			stop_process
 		else
-			# Force compile the live packages
+			# Force compiles the live packages
 			if [ "${live:?}" = "true" ]; then
 				start_process "Update live packages"
 				compile "@live-rebuild"
