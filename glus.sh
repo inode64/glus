@@ -719,16 +719,18 @@ main() {
 			command "emerge --depclean${pretend}${exclude}"
 		fi
 
-		# Recompile all perl packages
-		start_process "Update perl packages"
-		command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
-		stop_process
+		if [ ! "${pretend}" ]; then
+			# Recompile all perl packages
+			start_process "Update perl packages"
+			command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
+			stop_process
 
-		if [ "${check:?}" = 'true' ]; then
-			# Check system integrity: Reverse Dependency Rebuilder
-			command "revdep-rebuild -i -v -- -v ${color} --fail-clean y${binary}${pretend}"
+			if [ "${check:?}" = 'true' ]; then
+				# Check system integrity: Reverse Dependency Rebuilder
+				command "revdep-rebuild -i -v -- -v ${color} --fail-clean y${binary}${pretend}"
 
-			# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
+				# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
+			fi
 		fi
 
 		if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
