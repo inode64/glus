@@ -393,6 +393,13 @@ stop_process() {
 	print_info "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
 }
 
+# Auto merge portage config
+etc_update_portage() {
+	if [ ! "${pretend}" ]; then
+		/usr/sbin/etc-update /etc/portage -p  &>/dev/null
+	fi
+}
+
 # Compile
 compile() {
 	local try emerge
@@ -654,6 +661,9 @@ main() {
 
 	# Empty portage tmp dir
 	clean_portage_dir
+
+	# Update config in /etc/portage
+	etc_update_portage
 
 	# First update the portage
 	start_process "Update portage"
