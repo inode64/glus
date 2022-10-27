@@ -396,7 +396,7 @@ stop_process() {
 # Auto merge portage config
 etc_update_portage() {
 	if [ ! "${pretend}" ]; then
-		/usr/sbin/etc-update /etc/portage -p  &>/dev/null
+		/usr/sbin/etc-update --automode -3 /etc/portage &>/dev/null
 	fi
 }
 
