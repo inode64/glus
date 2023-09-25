@@ -729,6 +729,10 @@ main() {
 			command "emerge --depclean${pretend}${exclude}"
 		fi
 
+		start_process "Rebuild preserved packages"
+		command "emerge @preserved-rebuild"
+		stop_process
+
 		if [ ! "${pretend}" ]; then
 			# Recompile all perl packages
 			start_process "Update perl packages"
