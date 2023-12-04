@@ -224,7 +224,7 @@ opt_parse() {
 		*) if [ ${optArgNext} -eq 1 ]; then
 				posArgs="${posArgs-} ${1?}"
 			else
-				opt_die "Illegal option ${1:?}"
+				opt_die "Illegal option ${1?}"
 			fi
 		  ;;
 		esac
