@@ -395,8 +395,8 @@ stop_process() {
 
 # Auto merge portage config
 etc_update_portage() {
-	if [ ! "${pretend}" ]; then
-		/usr/sbin/etc-update --automode -5 /etc/portage &>/dev/null
+	if [ ! "${pretend}" ] || [ "${debug}" ]; then
+		command "/usr/sbin/etc-update --automode -5 /etc/portage &>/dev/null"
 	fi
 }
 
