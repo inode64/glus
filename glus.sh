@@ -945,7 +945,6 @@ main() {
 		# If the value equals "only", use pkgonly.
 	'auto')
 		if check_pkg; then
-			echo "ok"
 			binary_args=(-k)
 		else
 			binary_args=()
