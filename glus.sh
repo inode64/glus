@@ -263,7 +263,7 @@ opt_arg_str() {
 	elif [ -n "${2+x}" ]; then
 		optArg="${2-}"
 		optShift='1'
-	else opt_die "No argument for ${:?} option"; fi
+	else opt_die "No argument for ${1:?} option"; fi
 
 	[ "${optArg:0:1}" == "-" ] && opt_die "Non a valid argument for ${1:?} option"
 
