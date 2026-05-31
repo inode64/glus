@@ -1,21 +1,93 @@
 # Glus
 Gentoo Linux update system
 
- Keep your gentoo linux up to date, update security problems daily and check that everything is correct.
+Glus is a maintenance script for Gentoo Linux systems. It keeps Portage and
+selected package sets up to date, rebuilds packages affected by toolchain,
+Perl, Python, or shared-library changes, and optionally removes obsolete
+packages and downloaded source archives.
+
+It is intended for periodic system maintenance, from small daily security
+updates to larger system, world, or full rebuild runs. The script can also show
+the planned operations with `--plan`, run Portage in pretend mode with
+`--pretend`, and print commands without executing them with `--debug`.
 
 
 # Features
 
-* Unify all processes to update the gentoo system periodically to keep it up to date with the latest security patches, portage, base system or full system.
+* Unify the regular Gentoo maintenance workflow: sync Portage, update Portage
+  itself, update selected package sets, rebuild affected packages, and clean old
+  packages or source files when requested.
   
-* Check the system to repair programs with broken libraries.
+* Use the executable `emerge` wrapper found under
+  `/usr/lib/python-exec/python*/emerge`. This helps when the regular `emerge`
+  command is temporarily broken during Python upgrades or when the system is
+  between two Python versions.
 
-* Update perl packages.
+* Update the active binutils and GCC configuration before compiling packages so
+  newly built binaries use the latest available development toolchain.
 
-* Solve problems with upgrade python from older versions, error: **no python-exec wrapper executable found** ( https://forums.gentoo.org/viewtopic-t-1109544-start-0.html )
+* Check and repair packages with missing shared-library dependencies using
+  `revdep-rebuild`.
+
+* Rebuild Perl packages and headers affected by Perl upgrades using
+  `perl-cleaner`.
+
+* Rebuild preserved packages, repair Portage merge metadata, and check the
+  world file with `emaint`.
+
+* Support binary package modes, package exclusions, live package rebuilds,
+  kernel module rebuilds, Go package rebuilds, hooks, quiet output, colored
+  output, error email notifications, and dry-run planning.
+
+
+# How it works
+
+Glus performs the update in a conservative order so that the package manager and
+the base build toolchain are refreshed before larger package updates are
+attempted:
+
+1. Load `/etc/portage/glus.conf`, validate command-line options and configured
+   hooks, and acquire a lock so only one Glus instance runs at a time.
+
+2. Sync Portage with `emaint -a sync`, unless synchronization is disabled.
+
+3. Run optional sync hooks configured with `GLUS_BEFORE_SYNC` and
+   `GLUS_AFTER_SYNC`.
+
+4. Clean temporary Portage build files from `/var/tmp/portage` when it is safe
+   to do so, and automatically merge safe Portage configuration updates with
+   `etc-update --automode -5 /etc/portage`.
+
+5. Update Portage first.
+
+6. Refresh development tools before and after package compilation: select the
+   latest available binutils and GCC profiles, run `env-update`, and refresh
+   Python wrappers with `eselect python update --python3`.
+
+7. Resolve `emerge` through the Python exec wrappers in
+   `/usr/lib/python-exec/python*/emerge`, which can recover from situations
+   where the default `emerge` command is not usable during Python transitions.
+
+8. Fetch required package sources before compiling, retrying downloads before
+   giving up.
+
+9. Update the requested target: security packages, explicit packages, live
+   packages, Go packages, kernel modules, the base system, world, or a full
+   empty-tree world rebuild.
+
+10. Rebuild preserved packages, rebuild Perl packages, and run `revdep-rebuild`
+    to find and repair binaries linked against missing or updated libraries.
+
+11. Optionally run `emerge --depclean`, clean old binary packages and distfiles
+    with `eclean`, run compile hooks, reload systemd when required, and send an
+    email with the last command output when a command fails.
 
 
 # Prerequisites
+
+* **flock** (sys-apps/util-linux)
+
+  Prevents multiple Glus instances from running at the same time.
 
 * **perl-cleaner** (app-admin/perl-cleaner)
   
@@ -32,7 +104,8 @@ Gentoo Linux update system
 
 * **mailx** (virtual/mta)
   
-  Send mail for alerts and notifications.
+  Send mail for alerts and notifications when `GLUS_EMAIL` or `--email` is
+  configured.
 
 # Git Installation
 
