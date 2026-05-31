@@ -112,8 +112,12 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
      --full
         Recompile the entire system (annual process, for example).
 
+     --dry-run, --plan
+        Show the planned steps and commands without executing them.
+        Shows commands like --debug and disables --quiet.
 
-    MISC OPTIONS:
+
+  MISC OPTIONS:
      --[no-]debug, ${GLUS_DEBUG}
         Show the commands to run.
         (default: false)
@@ -167,4 +171,10 @@ glus.sh --world
 
 ```
 glus.sh --full --debug
+```
+
+* Show the update plan without executing commands
+
+```
+glus.sh --plan
 ```

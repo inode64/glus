@@ -196,6 +196,10 @@ opt_parse() {
 			opt_arg_bool "${@-}"
 			fetch="${optArg:?}"
 			;;
+		'--dry-run' | '--plan')
+			enable_dry_run
+			optArgNext=0
+			;;
 		'--debug' | '--no-debug')
 			opt_arg_bool "${@-}"
 			debug="${optArg:?}"
@@ -297,12 +301,22 @@ opt_die() {
 	exit 2
 }
 
+enable_dry_run() {
+	dry_run='true'
+	debug='true'
+	quiet='false'
+}
+
 # Show help and quit.
 show_help() {
+	if [ "${dry_run-}" = 'true' ]; then
+		enable_dry_run
+	fi
+
 	printf '%s\n' "$(
 		sed -e 's/%NL/\n/g' <<-EOF
 			  Gentoo Linux update system%NL
-			  Usage: glus [--full|--world] [OPTION]...
+			  Usage: glus [--full|--world|--dry-run|--plan] [OPTION]...
 			  Keep your gentoo linux up to date, update security problems daily
 			  and check that it is correct.%NL
 			  PORTAGE OPTIONS:
@@ -354,8 +368,12 @@ show_help() {
 	        Compile only system core (monthly process, for example).%NL
 	     --full
 	        Recompile the entire system (annual process, for example).%NL
+	     --dry-run, --plan
+	        Show the planned steps and commands without executing them.
+	        Shows commands like --debug and disables --quiet.
+	        (default: ${dry_run?})%NL
 
-	    MISC OPTIONS:
+	  MISC OPTIONS:
 	     --[no-]debug, \${GLUS_DEBUG}
 	        Show the commands to run.
 	        (default: ${debug?})%NL
@@ -545,11 +563,20 @@ validate_config() {
 
 start_process() {
 	START=$(date +%s)
+	if [ "${dry_run-}" = 'true' ]; then
+		print_info "Plan step: $*"
+		return
+	fi
+
 	print_info "$@"
 }
 
 stop_process() {
 	local result
+
+	if [ "${dry_run-}" = 'true' ]; then
+		return
+	fi
 
 	((result = $(date +%s) - START))
 
@@ -683,6 +710,11 @@ command() {
 		return 1
 	fi
 
+	if [ "${dry_run-}" = 'true' ]; then
+		print_info "Plan command: $(format_command "$@")"
+		return 0
+	fi
+
 	print_info "$(format_command "$@")"
 
 	if [ "${debug:?}" = 'true' ]; then
@@ -741,6 +773,11 @@ get_versions() {
 
 change_versions() {
 	local systemd_new
+
+	if [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+		return
+	fi
+
 	# Check systemd
 	if [ -x /run/systemd/system ]; then
 		systemd_new=$(systemctl --version)
@@ -818,6 +855,9 @@ main() {
 	# Show the commands to run
 	debug="${GLUS_DEBUG-"false"}"
 
+	# Plan the run without touching the system
+	dry_run="false"
+
 	# Actions
 	#
 
@@ -837,6 +877,10 @@ main() {
 		set -- ${posArgs-} >/dev/null
 	}
 
+	if [ "${dry_run:?}" = 'true' ]; then
+		enable_dry_run
+	fi
+
 	validate_config || return 2
 
 	# Define terminal colors if the color option is enabled or in auto mode if STDOUT is attached to a TTY and the
@@ -855,6 +899,10 @@ main() {
 	# Set "NO_STDOUT" variable if the quiet option is enabled (other methods will honor this variable).
 	if [ "${quiet:?}" = 'true' ]; then
 		NO_STDOUT='true'
+	fi
+
+	if [ "${dry_run:?}" = 'true' ]; then
+		print_info "Dry-run: planned commands will not be executed"
 	fi
 
 	# Remove superfluous warnings in pretend
