@@ -139,8 +139,6 @@ update_devel() {
 
 # Parse command line options.
 opt_parse() {
-	optArgNext=0
-
 	while [ "${#}" -gt '0' ]; do
 		case "${1?}" in
 		# Short options that accept an argument need a "*" in their pattern because they can be
@@ -205,7 +203,6 @@ opt_parse() {
 			;;
 		'--dry-run' | '--plan')
 			enable_dry_run
-			optArgNext=0
 			;;
 		'--debug' | '--no-debug')
 			opt_arg_bool "${@-}"
@@ -218,7 +215,6 @@ opt_parse() {
 			;;
 		'--no-binary')
 			binary='false'
-			optArgNext=0
 			;;
 		'-q' | '--quiet' | '--no-quiet')
 			opt_arg_bool "${@-}"
@@ -258,13 +254,8 @@ opt_parse() {
 			set -- "${optAName:?}" "${optBName:?}" "${@-}"
 			continue
 			;;
-		# If a positional argument is found, it is saved.
-		*) if [ "${optArgNext}" -eq 1 ]; then
-				posArgs="${posArgs-} ${1?}"
-			else
-				opt_die "Illegal option ${1?}"
-			fi
-		  ;;
+		# Positional arguments are only supported after "--".
+		*) opt_die "Illegal option ${1?}" ;;
 		esac
 		shift
 	done
@@ -273,13 +264,11 @@ opt_parse() {
 opt_split_short() {
 	optAName="${1%"${1#??}"}"
 	optBName="-${1#??}"
-	optArgNext=0
 }
 
 opt_split_equals() {
 	optName="${1%="${1#--*=}"}"
 	optArg="${1#--*=}"
-	optArgNext=0
 }
 
 opt_arg_str() {
@@ -292,15 +281,12 @@ opt_arg_str() {
 	else opt_die "No argument for ${1:?} option"; fi
 
 	[ "${optArg:0:1}" == "-" ] && opt_die "Non a valid argument for ${1:?} option"
-
-	optArgNext=0
 }
 
 opt_arg_bool() {
 	if [ "${1#--no-}" = "${1:?}" ]; then
 		optArg='true'
 	else optArg='false'; fi
-	optArgNext=0
 }
 
 opt_die() {
