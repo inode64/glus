@@ -73,7 +73,7 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
         Only download, no compile or install.
         (default: false)
 
-     -b, --binary <auto|autoonly|true|false|only>, ${GLUS_BINARY}
+     -b, --binary <auto|autoonly|true|false|only>, --no-binary, ${GLUS_BINARY}
         Use binary packages.
         Force use only binary packages for only option selected.
         (default: false)

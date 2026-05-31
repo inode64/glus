@@ -179,20 +179,28 @@ opt_parse() {
 			opt_arg_bool "${@-}"
 			fetch="${optArg:?}"
 			;;
-		'--debug')
+		'--debug' | '--no-debug')
 			opt_arg_bool "${@-}"
 			debug="${optArg:?}"
 			;;
-		'-b' | '--binary' | '--no-binary')
+		'-b' | '--binary')
 			opt_arg_str "${@-}"
 			binary="${optArg:?}"
+			;;
+		'--no-binary')
+			binary='false'
+			optArgNext=0
+			;;
+		'-q' | '--quiet' | '--no-quiet')
+			opt_arg_bool "${@-}"
+			quiet="${optArg:?}"
 			;;
 		'-x'* | '--color')
 			opt_arg_str "${@-}"
 			color="${optArg?}"
 			shift "${optShift:?}"
 			;;
-		'-email')
+		'--email' | '-email')
 			opt_arg_str "${@-}"
 			email="${optArg:?}"
 			;;
@@ -297,7 +305,7 @@ show_help() {
 	     -f, --[no-]fetch, \${GLUS_FETCH}
 	        Only download, no compile or install.
 	        (default: ${fetch?})%NL
-	     -b, --binary <auto|autoonly|true|false|only>, \${GLUS_BINARY}
+	     -b, --binary <auto|autoonly|true|false|only>, --no-binary, \${GLUS_BINARY}
 	        Use binary packages.
 	        Force use only binary packages for only option selected.
 	        (default: ${binary?})%NL
