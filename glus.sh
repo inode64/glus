@@ -926,15 +926,12 @@ main() {
 		emerge_opts_args=()
 	fi
 
-	# Check the binary package option.
+	# Check the binary package option. validate_config guarantees the value
+	# is one of: false|true|only|auto|autoonly.
 	case "${binary:?}" in
-	# If is false.
 	'false') binary_args=() ;;
-		# If is empty.
 	'true') binary_args=(-k) ;;
-		# If the value equals "only" or empty, use pkg.
 	'only') binary_args=(-K) ;;
-		# If the value equals "only", use pkgonly.
 	'auto')
 		if check_pkg; then
 			binary_args=(-k)
@@ -949,11 +946,6 @@ main() {
 			binary_args=()
 		fi
 		;;
-	# If the value is not supported, throw an error.
-	*) [ -e "${binary:?}" ] || {
-		print_error "No such binary option: ${binary:?}"
-		exit 1
-	} ;;
 	esac
 
 	get_versions
