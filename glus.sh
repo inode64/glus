@@ -26,7 +26,9 @@ exec {LOCK_FD}>"${LOCK_FILE}" || {
 	exit 1
 }
 if ! flock -n "${LOCK_FD}"; then
-	exit 0
+	printf 'Another instance of glus is already running (lock: %s)\n' "${LOCK_FILE}" >&2
+	# 75 = EX_TEMPFAIL (sysexits.h): the caller can retry later.
+	exit 75
 fi
 
 export LC_ALL='C'
