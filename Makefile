@@ -2,11 +2,13 @@
 
 SHELL := /bin/sh
 
-DESTDIR ?=/usr/local
+DESTDIR ?=
+prefix ?= /usr
 
-exec_prefix ?= $(DESTDIR)
-sbindir ?= $(exec_prefix)/usr/sbin
-gentoodir ?= $(DESTDIR)/etc/portage/
+exec_prefix ?= $(prefix)
+sbindir ?= $(exec_prefix)/sbin
+sysconfdir ?= /etc
+gentoodir ?= $(sysconfdir)/portage
 
 INSTALL ?= install
 
@@ -14,10 +16,10 @@ INSTALL_PROGRAM ?= $(INSTALL)
 INSTALL_DATA ?= $(INSTALL) -m 644
 
 install:
-	mkdir -p '$(sbindir)' '$(gentoodir)'
-	$(INSTALL_PROGRAM) ./glus.sh '$(sbindir)'/glus.sh
-	$(INSTALL_DATA) ./glus.conf '$(gentoodir)'glus.conf
+	mkdir -p '$(DESTDIR)$(sbindir)' '$(DESTDIR)$(gentoodir)'
+	$(INSTALL_PROGRAM) ./glus.sh '$(DESTDIR)$(sbindir)'/glus.sh
+	$(INSTALL_DATA) ./glus.conf '$(DESTDIR)$(gentoodir)'/glus.conf
 
 uninstall:
-	rm -f '$(sbindir)'/glus.sh
-	rm -f '$(gentoodir)'glus.conf
+	rm -f '$(DESTDIR)$(sbindir)'/glus.sh
+	rm -f '$(DESTDIR)$(gentoodir)'/glus.conf
