@@ -888,11 +888,11 @@ main() {
 	# Define terminal colors if the color option is enabled or in auto mode if STDOUT is attached to a TTY and the
 	# "NO_COLOR" variable is not set (https://no-color.org).
 	if [ "${color:?}" = 'true' ] || { [ "${color:?}" = 'auto' ] && [ -z "${NO_COLOR+x}" ] && [ -t 1 ]; }; then
-		COLOR_RESET="$({ exists tput && tput sgr0; } 2>/dev/null || printf '\033[0m')"
-		COLOR_BRED="$({ exists tput && tput bold && tput setaf 1; } 2>/dev/null || printf '\033[1;31m')"
-		COLOR_BGREEN="$({ exists tput && tput bold && tput setaf 2; } 2>/dev/null || printf '\033[1;32m')"
-		COLOR_BYELLOW="$({ exists tput && tput bold && tput setaf 3; } 2>/dev/null || printf '\033[1;33m')"
-		COLOR_BCYAN="$({ exists tput && tput bold && tput setaf 6; } 2>/dev/null || printf '\033[1;36m')"
+		COLOR_RESET="$({ builtin command -v tput >/dev/null && tput sgr0; } 2>/dev/null || printf '\033[0m')"
+		COLOR_BRED="$({ builtin command -v tput >/dev/null && tput bold && tput setaf 1; } 2>/dev/null || printf '\033[1;31m')"
+		COLOR_BGREEN="$({ builtin command -v tput >/dev/null && tput bold && tput setaf 2; } 2>/dev/null || printf '\033[1;32m')"
+		COLOR_BYELLOW="$({ builtin command -v tput >/dev/null && tput bold && tput setaf 3; } 2>/dev/null || printf '\033[1;33m')"
+		COLOR_BCYAN="$({ builtin command -v tput >/dev/null && tput bold && tput setaf 6; } 2>/dev/null || printf '\033[1;36m')"
 		color_args=()
 	else
 		color_args=(--color n)
