@@ -92,6 +92,7 @@ Last_binutils() {
 	/usr/bin/binutils-config -C "${last}"
 	/usr/sbin/env-update 2>/dev/null
 
+	# shellcheck disable=SC1091
 	. /etc/profile
 
 	return "${last}"
@@ -109,6 +110,7 @@ Last_gcc() {
 	/usr/bin/gcc-config -C "${last}"
 	/usr/sbin/env-update 2>/dev/null
 
+	# shellcheck disable=SC1091
 	. /etc/profile
 
 	return "${last}"
@@ -794,6 +796,7 @@ main() {
 	if [ -f "${SYS_CONF_FILE}" ]; then
 		set -a
 		# shellcheck source=/etc/portage/glus.conf
+		# shellcheck disable=SC1091
 		. "${SYS_CONF_FILE}"
 		set +a
 	fi
