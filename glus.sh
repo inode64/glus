@@ -253,7 +253,7 @@ opt_parse() {
 			continue
 			;;
 		# If a positional argument is found, it is saved.
-		*) if [ ${optArgNext} -eq 1 ]; then
+		*) if [ "${optArgNext}" -eq 1 ]; then
 				posArgs="${posArgs-} ${1?}"
 			else
 				opt_die "Illegal option ${1?}"
