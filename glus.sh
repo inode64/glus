@@ -424,19 +424,26 @@ format_command() {
 
 run_config_command() {
 	local config_command
-	local -a config_args
 
 	config_command="${1-}"
 	if [ ! "${config_command}" ]; then
 		return 0
 	fi
 
-	read -r -a config_args <<<"${config_command}"
-	if [ "${#config_args[@]}" -eq 0 ]; then
+	# Re-parse the configured string with shell quoting rules so arguments
+	# containing spaces can be expressed as 'quoted strings'.
+	# validate_config_command already rejects the dangerous shell operators
+	# (; | & < > ` $( <( >( ) before we get here.
+	if ! eval "set -- ${config_command}" 2>/dev/null; then
+		print_error "Invalid config command: ${config_command}"
+		return 1
+	fi
+
+	if [ "${#}" -eq 0 ]; then
 		return 0
 	fi
 
-	command "${config_args[@]}"
+	command "$@"
 }
 
 validate_bool() {
@@ -500,14 +507,19 @@ validate_config_command() {
 		return 0
 	fi
 
+	# Reject shell operators and command/process substitution so it is safe
+	# for run_config_command to re-parse the value with `eval set --`.
 	case "${value}" in
-	*[\;\|\&\<\>\`]*)
+	*[\;\|\&\<\>\`]* | *'$('* | *'<('* | *'>('*)
 		print_error "Invalid ${name}: shell operators are not supported. Use a wrapper script instead."
 		return 1
 		;;
 	esac
 
-	read -r -a command_args <<<"${value}"
+	if ! eval "command_args=(${value})" 2>/dev/null; then
+		print_error "Invalid ${name}: unbalanced quotes or unparseable value: ${value}"
+		return 1
+	fi
 	if [ "${#command_args[@]}" -eq 0 ]; then
 		return 0
 	fi
