@@ -504,10 +504,12 @@ validate_config_command() {
 		return 0
 	fi
 
-	# Reject shell operators and command/process substitution so it is safe
-	# for run_config_command to re-parse the value with `eval set --`.
+	# Reject shell operators and command substitution so it is safe for
+	# run_config_command to re-parse the value with `eval set --`. The
+	# character class already catches `<` and `>` (and therefore <( and >()
+	# so only `$(` needs its own pattern.
 	case "${value}" in
-	*[\;\|\&\<\>\`]* | *'$('* | *'<('* | *'>('*)
+	*[\;\|\&\<\>\`]* | *\$\(*)
 		print_error "Invalid ${name}: shell operators are not supported. Use a wrapper script instead."
 		return 1
 		;;
