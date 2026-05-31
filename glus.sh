@@ -428,6 +428,20 @@ etc_update_portage() {
 	return 0
 }
 
+find_emerge() {
+	local candidate
+
+	while IFS= read -r candidate; do
+		if [ -x "${candidate}" ]; then
+			printf '%s\n' "${candidate}"
+			return 0
+		fi
+	done < <(find /usr/lib/python-exec -maxdepth 2 -mindepth 2 -path '/usr/lib/python-exec/python*/emerge' 2>/dev/null | sort -rV)
+
+	print_error "No executable emerge wrapper found in /usr/lib/python-exec/python*/emerge"
+	return 1
+}
+
 # Compile
 compile() {
 	local command_flags count_errors fetch_ok try emerge
@@ -443,8 +457,12 @@ compile() {
 	# Update binutils, gcc
 	update_devel &>/dev/null
 
-	# shellcheck disable=SC2012
-	emerge=$(ls /usr/lib/python-exec/python*/emerge | sort -rV | head -n1)
+	if ! emerge=$(find_emerge); then
+		if [ "${count_errors}" = 'true' ]; then
+			((++errors))
+		fi
+		return 1
+	fi
 	try=3
 
 	if [ ! "${pretend}" ]; then
