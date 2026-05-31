@@ -68,7 +68,7 @@ cleanup() {
 
 # Remove unnecessary files in /var/tmp/portage
 clean_portage_dir() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -80,7 +80,7 @@ clean_portage_dir() {
 }
 
 Last_binutils() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return 0
 	fi
 
@@ -101,7 +101,7 @@ Last_binutils() {
 }
 
 Last_gcc() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return 0
 	fi
 
@@ -122,7 +122,7 @@ Last_gcc() {
 }
 
 update_devel() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -592,7 +592,7 @@ run_process() {
 
 # Auto merge portage config
 etc_update_portage() {
-	if [ ! "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+	if [ "${pretend}" != 'true' ] || [ "${debug:?}" = 'true' ]; then
 		command --discard-output /usr/sbin/etc-update --automode -5 /etc/portage || return
 	fi
 
@@ -636,7 +636,7 @@ compile() {
 	fi
 	try=3
 
-	if [ ! "${pretend}" ]; then
+	if [ "${pretend}" != 'true' ]; then
 		# First try download all files
 		fetch_ok='false'
 		while true; do
@@ -714,14 +714,14 @@ command() {
 		return 0
 	fi
 
-	if [ "${pretend}" ] && [ "${run_in_pretend}" != 'true' ]; then
+	if [ "${pretend}" = 'true' ] && [ "${run_in_pretend}" != 'true' ]; then
 		print_info "Skipping command in pretend mode"
 		return 0
 	fi
 
 	temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
 
-	if [ "${pretend}" ]; then
+	if [ "${pretend}" = 'true' ]; then
 		"$@" 2>/dev/null
 		err=$?
 	else
@@ -767,7 +767,7 @@ get_versions() {
 change_versions() {
 	local systemd_new
 
-	if [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
+	if [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -899,12 +899,10 @@ main() {
 		print_info "Dry-run: planned commands will not be executed"
 	fi
 
-	# Remove superfluous warnings in pretend
+	# Build the pretend flag array used by emerge-family commands.
 	if [ "${pretend:?}" = 'true' ]; then
-		pretend="-p"
 		pretend_args=(-p)
 	else
-		pretend=""
 		pretend_args=()
 	fi
 
@@ -964,7 +962,7 @@ main() {
 		fi
 	fi
 
-	if [ "${GLUS_BEFORE_COMPILE}" ] && [ ! "${pretend}" ]; then
+	if [ "${GLUS_BEFORE_COMPILE}" ] && [ "${pretend}" != 'true' ]; then
 		# Execute command before compile
 		run_config_command "${GLUS_BEFORE_COMPILE}" || return
 	fi
@@ -1033,7 +1031,7 @@ main() {
 
 		run_process "Rebuild preserved packages" command --pretend-safe emerge "${pretend_args[@]}" @preserved-rebuild || return
 
-		if [ ! "${pretend}" ]; then
+		if [ "${pretend}" != 'true' ]; then
 			# Recompile all perl packages
 			run_process "Update perl packages" command /usr/sbin/perl-cleaner --all -- "${color_args[@]}" -v --fail-clean y "${binary_args[@]}" "${pretend_args[@]}" || return
 
@@ -1045,7 +1043,7 @@ main() {
 			fi
 		fi
 
-		if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
+		if [ "${GLUS_AFTER_COMPILE}" ] && [ "${pretend}" != 'true' ]; then
 			# Execute command after all
 			run_config_command "${GLUS_AFTER_COMPILE}" || return
 		fi
