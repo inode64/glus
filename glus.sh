@@ -629,7 +629,7 @@ main() {
 		exclude=" --exclude '${exclude}'"
 	fi
 
-	# Check the header file.
+	# Check the binary package option.
 	case "${binary:?}" in
 	# If is false.
 	'false') binary="" ;;
@@ -653,9 +653,9 @@ main() {
 			binary=""
 		fi
 		;;
-	# If the file does not exist, throw an error.
+	# If the value is not supported, throw an error.
 	*) [ -e "${binary:?}" ] || {
-		print_error "No such binary option: ${headerFile:?}"
+		print_error "No such binary option: ${binary:?}"
 		exit 1
 	} ;;
 	esac
