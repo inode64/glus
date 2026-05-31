@@ -81,38 +81,44 @@ clean_portage_dir() {
 
 Last_binutils() {
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
-		return
+		return 0
 	fi
 
 	local last
 
-	last=$(/usr/bin/binutils-config -l 2>/dev/null | wc | awk '{print $1}')
+	last=$(/usr/bin/binutils-config -l 2>/dev/null | wc -l)
+	if ! [ "${last}" -gt 0 ] 2>/dev/null; then
+		return 0
+	fi
 
-	/usr/bin/binutils-config -C "${last}"
+	/usr/bin/binutils-config "${last}"
 	/usr/sbin/env-update 2>/dev/null
 
 	# shellcheck disable=SC1091
 	. /etc/profile
 
-	return "${last}"
+	return 0
 }
 
 Last_gcc() {
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
-		return
+		return 0
 	fi
 
 	local last
 
-	last=$(/usr/bin/gcc-config -l 2>/dev/null | wc | awk '{print $1}')
+	last=$(/usr/bin/gcc-config -l 2>/dev/null | wc -l)
+	if ! [ "${last}" -gt 0 ] 2>/dev/null; then
+		return 0
+	fi
 
-	/usr/bin/gcc-config -C "${last}"
+	/usr/bin/gcc-config "${last}"
 	/usr/sbin/env-update 2>/dev/null
 
 	# shellcheck disable=SC1091
 	. /etc/profile
 
-	return "${last}"
+	return 0
 }
 
 update_devel() {
