@@ -29,6 +29,10 @@ the planned operations with `--plan`, run Portage in pretend mode with
 * Check and repair packages with missing shared-library dependencies using
   `revdep-rebuild`.
 
+* Optionally verify installed package file integrity with `qcheck`, reporting
+  packages with changed or missing files while ignoring protected configuration
+  paths.
+
 * Rebuild Perl packages and headers affected by Perl upgrades using
   `perl-cleaner`.
 
@@ -77,6 +81,8 @@ attempted:
 
 10. Rebuild preserved packages, rebuild Perl packages, and run `revdep-rebuild`
     to find and repair binaries linked against missing or updated libraries.
+    When `GLUS_QCHECK=true` or `--qcheck` is enabled, also run
+    `qcheck -B -P -v` to verify installed package file integrity.
 
 11. Optionally run `emerge --depclean`, clean old binary packages and distfiles
     with `eclean`, run compile hooks, reload systemd when required, and send an
@@ -101,6 +107,11 @@ attempted:
   It is useful when an upgraded package breaks other software packages that are dependent
   upon the upgraded package.
   
+* **qcheck** (app-portage/portage-utils)
+
+  Optionally verifies the integrity of installed package files when
+  `GLUS_QCHECK` or `--qcheck` is enabled.
+
 
 * **mailx** (virtual/mta)
   
@@ -137,6 +148,10 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
      -c --[no-]check, ${GLUS_CHECK}
         Check the system.
         (default: true)
+
+     --[no-]qcheck, ${GLUS_QCHECK}
+        Verify installed package integrity with qcheck.
+        (default: false)
 
      -C --[no-]clean, ${GLUS_CLEAN}
         Clean packages and source files after compile.
@@ -250,4 +265,10 @@ glus.sh --full --debug
 
 ```
 glus.sh --plan
+```
+
+* Run the regular checks and verify installed package file integrity with qcheck
+
+```
+glus.sh --qcheck
 ```

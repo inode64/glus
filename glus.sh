@@ -166,6 +166,10 @@ opt_parse() {
 			opt_arg_bool "${@-}"
 			check="${optArg:?}"
 			;;
+		'--qcheck' | '--no-qcheck')
+			opt_arg_bool "${@-}"
+			qcheck="${optArg:?}"
+			;;
 		'-C' | '--clean' | '--no-clean')
 			opt_arg_bool "${@-}"
 			clean="${optArg:?}"
@@ -322,6 +326,9 @@ show_help() {
 	     -c --[no-]check, \${GLUS_CHECK}
 	        Check the system.
 	        (default: ${check?})%NL
+	     --[no-]qcheck, \${GLUS_QCHECK}
+	        Verify installed package integrity with qcheck.
+	        (default: ${qcheck?})%NL
 	     -C --[no-]clean, \${GLUS_CLEAN}
 	        Clean packages and source files after compile.
 	        (default: ${clean?})%NL
@@ -542,6 +549,7 @@ validate_config() {
 	validate_bool GLUS_FETCH "${fetch}" || ret=1
 	validate_bool GLUS_PRETEND "${pretend}" || ret=1
 	validate_bool GLUS_CHECK "${check}" || ret=1
+	validate_bool GLUS_QCHECK "${qcheck}" || ret=1
 	validate_bool GLUS_CLEAN "${clean}" || ret=1
 	validate_bool GLUS_GO "${go}" || ret=1
 	validate_bool GLUS_MODULES "${modules}" || ret=1
@@ -821,6 +829,9 @@ main() {
 	# Check the system
 	check="${GLUS_CHECK-"true"}"
 
+	# Verify installed package integrity with qcheck
+	qcheck="${GLUS_QCHECK-"false"}"
+
 	# Clean packages and source files after compile.
 	clean="${GLUS_CLEAN-"false"}"
 
@@ -1048,7 +1059,10 @@ main() {
 				# Check system integrity: Reverse Dependency Rebuilder
 				command revdep-rebuild -i -v -- -v "${color_args[@]}" --fail-clean y "${binary_args[@]}" "${pretend_args[@]}" || return
 
-				# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
+				if [ "${qcheck:?}" = 'true' ]; then
+					# Check package file integrity while ignoring protected config paths.
+					command --pretend-safe qcheck -B -P -v || return
+				fi
 			fi
 		fi
 
