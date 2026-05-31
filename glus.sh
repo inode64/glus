@@ -426,10 +426,10 @@ compile() {
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Compile
-		command "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*"
+		command --pretend-safe "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*"
 
 		# Update broken merges
-		command "emaint${pretend} merges"
+		command --pretend-safe "emaint${pretend} merges"
 
 		# Update binutils, gcc
 		update_devel &>/dev/null
@@ -437,13 +437,25 @@ compile() {
 }
 
 command() {
+	local err run_in_pretend temp_file
+
+	run_in_pretend='false'
+	if [ "${1-}" = '--pretend-safe' ]; then
+		run_in_pretend='true'
+		shift
+	fi
+
 	print_info "$@"
 
 	if [ "${debug:?}" = 'true' ]; then
-		return
+		return 0
 	fi
 
-	local err temp_file
+	if [ "${pretend}" ] && [ "${run_in_pretend}" != 'true' ]; then
+		print_info "Skipping command in pretend mode"
+		return 0
+	fi
+
 	temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
 
 	if [ "${pretend}" ]; then
@@ -730,11 +742,11 @@ main() {
 	if [ "${fetch:?}" = 'false' ]; then
 		# Remove old packages
 		if [ "${clean:?}" = 'true' ]; then
-			command "emerge --depclean${pretend}${exclude}"
+			command --pretend-safe "emerge --depclean${pretend}${exclude}"
 		fi
 
 		start_process "Rebuild preserved packages"
-		command "emerge @preserved-rebuild"
+		command --pretend-safe "emerge${pretend} @preserved-rebuild"
 		stop_process
 
 		if [ ! "${pretend}" ]; then
@@ -757,13 +769,13 @@ main() {
 		fi
 
 		# Check and fix problems in the world file
-		command "emaint${pretend} world"
+		command --pretend-safe "emaint${pretend} world"
 
 		if [ "${clean:?}" = 'true' ]; then
 			if [ "${binary}" ]; then
-				command "eclean -C -d${pretend} packages"
+				command --pretend-safe "eclean -C -d${pretend} packages"
 			fi
-			command "eclean -C -d${pretend} distfiles"
+			command --pretend-safe "eclean -C -d${pretend} distfiles"
 		fi
 	fi
 
