@@ -392,6 +392,27 @@ print_warn() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BYELLO
 print_error() { [ -n "${NO_STDERR+x}" ] || printf "${COLOR_RESET-}[${COLOR_BRED-}ERROR${COLOR_RESET-}] %s\n" "${@-}" >&2; }
 print_list() { [ -n "${NO_STDOUT+x}" ] || printf "${COLOR_RESET-} ${COLOR_BCYAN-}*${COLOR_RESET-} %s\n" "${@-}"; }
 
+format_command() {
+	printf '%q ' "$@"
+}
+
+run_config_command() {
+	local config_command
+	local -a config_args
+
+	config_command="${1-}"
+	if [ ! "${config_command}" ]; then
+		return 0
+	fi
+
+	read -r -a config_args <<<"${config_command}"
+	if [ "${#config_args[@]}" -eq 0 ]; then
+		return 0
+	fi
+
+	command "${config_args[@]}"
+}
+
 start_process() {
 	START=$(date +%s)
 	print_info "$@"
@@ -422,7 +443,7 @@ run_process() {
 # Auto merge portage config
 etc_update_portage() {
 	if [ ! "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
-		command "/usr/sbin/etc-update --automode -5 /etc/portage &>/dev/null" || return
+		command --discard-output /usr/sbin/etc-update --automode -5 /etc/portage || return
 	fi
 
 	return 0
@@ -469,8 +490,7 @@ compile() {
 		# First try download all files
 		fetch_ok='false'
 		while true; do
-			# shellcheck disable=SC2048
-			if command --no-error-count "${emerge} -f -1 --keep-going --fail-clean y${color}${exclude}${EMERGE_OPTS} $*"; then
+			if command --no-error-count "${emerge}" -f -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "$@"; then
 				fetch_ok='true'
 				break
 			fi
@@ -480,7 +500,7 @@ compile() {
 		done
 
 		if [ "${fetch_ok}" != 'true' ]; then
-			print_error "Failed to fetch packages: $*"
+			print_error "Failed to fetch packages: $(format_command "$@")"
 			if [ "${count_errors}" = 'true' ]; then
 				((++errors))
 			fi
@@ -490,10 +510,10 @@ compile() {
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Compile
-		command --pretend-safe "${command_flags[@]}" "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*" || return
+		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" "$@" || return
 
 		# Update broken merges
-		command --pretend-safe "${command_flags[@]}" "emaint${pretend} merges" || return
+		command --pretend-safe "${command_flags[@]}" emaint "${pretend_args[@]}" merges || return
 
 		# Update binutils, gcc
 		update_devel &>/dev/null
@@ -503,9 +523,10 @@ compile() {
 }
 
 command() {
-	local count_errors err run_in_pretend temp_file
+	local count_errors discard_output err run_in_pretend temp_file
 
 	count_errors='true'
+	discard_output='false'
 	run_in_pretend='false'
 	while [ "${1-}" ]; do
 		case "${1}" in
@@ -517,13 +538,22 @@ command() {
 			count_errors='false'
 			shift
 			;;
+		'--discard-output')
+			discard_output='true'
+			shift
+			;;
 		*)
 			break
 			;;
 		esac
 	done
 
-	print_info "$@"
+	if [ "${#}" -eq 0 ]; then
+		print_error "No command specified"
+		return 1
+	fi
+
+	print_info "$(format_command "$@")"
 
 	if [ "${debug:?}" = 'true' ]; then
 		return 0
@@ -537,17 +567,17 @@ command() {
 	temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
 
 	if [ "${pretend}" ]; then
-		# shellcheck disable=SC2048
-		eval "$*" 2>/dev/null
+		"$@" 2>/dev/null
 		err=$?
 	else
-		if [ "${quiet:?}" = 'true' ]; then
-			# shellcheck disable=SC2048
-			eval "$*" &>"${temp_file}"
+		if [ "${discard_output}" = 'true' ]; then
+			"$@" &>/dev/null
+			err=$?
+		elif [ "${quiet:?}" = 'true' ]; then
+			"$@" &>"${temp_file}"
 			err=$?
 		else
-			# shellcheck disable=SC2048
-			eval "$*" 2>&1 | tee "${temp_file}"
+			"$@" 2>&1 | tee "${temp_file}"
 			err=${PIPESTATUS[0]}
 		fi
 	fi
@@ -592,6 +622,8 @@ change_versions() {
 }
 
 main() {
+	local -a binary_args color_args emerge_opts_args exclude_args package_args pretend_args sets
+
 	if [ -f "${SYS_CONF_FILE}" ]; then
 		set -a
 		# shellcheck source=/etc/portage/glus.conf
@@ -683,9 +715,9 @@ main() {
 		COLOR_BGREEN="$({ exists tput && tput bold && tput setaf 2; } 2>/dev/null || printf '\033[1;32m')"
 		COLOR_BYELLOW="$({ exists tput && tput bold && tput setaf 3; } 2>/dev/null || printf '\033[1;33m')"
 		COLOR_BCYAN="$({ exists tput && tput bold && tput setaf 6; } 2>/dev/null || printf '\033[1;36m')"
-		color=""
+		color_args=()
 	else
-		color=" --color n"
+		color_args=(--color n)
 	fi
 
 	# Set "NO_STDOUT" variable if the quiet option is enabled (other methods will honor this variable).
@@ -695,37 +727,53 @@ main() {
 
 	# Remove superfluous warnings in pretend
 	if [ "${pretend:?}" = 'true' ]; then
-		pretend=" -p"
+		pretend="-p"
+		pretend_args=(-p)
 	else
 		pretend=""
+		pretend_args=()
 	fi
 
 	if [ "${exclude}" ]; then
-		exclude=" --exclude '${exclude}'"
+		exclude_args=(--exclude "${exclude}")
+	else
+		exclude_args=()
+	fi
+
+	if [ "${packages}" ]; then
+		read -r -a package_args <<<"${packages}"
+	else
+		package_args=()
+	fi
+
+	if [ "${EMERGE_OPTS-}" ]; then
+		read -r -a emerge_opts_args <<<"${EMERGE_OPTS}"
+	else
+		emerge_opts_args=()
 	fi
 
 	# Check the binary package option.
 	case "${binary:?}" in
 	# If is false.
-	'false') binary="" ;;
+	'false') binary_args=() ;;
 		# If is empty.
-	'true') binary=" -k" ;;
+	'true') binary_args=(-k) ;;
 		# If the value equals "only" or empty, use pkg.
-	'only') binary=" -K" ;;
+	'only') binary_args=(-K) ;;
 		# If the value equals "only", use pkgonly.
 	'auto')
 		if check_pkg; then
 			echo "ok"
-			binary=" -k"
+			binary_args=(-k)
 		else
-			binary=""
+			binary_args=()
 		fi
 		;;
 	'autoonly')
 		if check_pkg; then
-			binary=" -K"
+			binary_args=(-K)
 		else
-			binary=""
+			binary_args=()
 		fi
 		;;
 	# If the value is not supported, throw an error.
@@ -740,20 +788,20 @@ main() {
 	if [ "${sync:?}" = 'true' ]; then
 		if [ "${GLUS_BEFORE_SYNC}" ]; then
 			# Execute command before sync portage
-			command "${GLUS_BEFORE_SYNC}" || return
+			run_config_command "${GLUS_BEFORE_SYNC}" || return
 		fi
 
-		run_process "Sync portage" command "emaint -a sync" || return
+		run_process "Sync portage" command emaint -a sync || return
 
 		if [ "${GLUS_AFTER_SYNC}" ]; then
 			# Execute command after sync portage
-			command "${GLUS_AFTER_SYNC}" || return
+			run_config_command "${GLUS_AFTER_SYNC}" || return
 		fi
 	fi
 
 	if [ "${GLUS_BEFORE_COMPILE}" ] && [ ! "${pretend}" ]; then
 		# Execute command before compile
-		command "${GLUS_BEFORE_COMPILE}" || return
+		run_config_command "${GLUS_BEFORE_COMPILE}" || return
 	fi
 
 	# Empty portage tmp dir
@@ -763,11 +811,11 @@ main() {
 	etc_update_portage || return
 
 	# First update the portage
-	run_process "Update portage" compile "-u portage" || return
+	run_process "Update portage" compile -u portage || return
 
 	# Fix compile errors when /usr/include/crypt.h is missing
 	if [ ! -e /usr/include/crypt.h ]; then
-		compile "-1u sys-libs/libxcrypt" || return
+		compile -1u sys-libs/libxcrypt || return
 	fi
 
 	# Update the system base
@@ -776,59 +824,57 @@ main() {
 
 		start_process "Update system"
 		# First try to compile all updates
-		compile --no-error-count "-uDN system" || print_warn "Full system update failed, trying basic system update"
+		compile --no-error-count -uDN system || print_warn "Full system update failed, trying basic system update"
 		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
-		compile "-u system"
+		compile -u system
 		ret=$?
 		stop_process
 		[ "${ret}" -eq 0 ] || return "${ret}"
 	fi
 
 	if [ "${world:?}" = "true" ]; then
-		run_process "Update world" compile "-uDN world --complete-graph=y --with-bdeps=y" || return
+		run_process "Update world" compile -uDN world --complete-graph=y --with-bdeps=y || return
 	else
 		if [ "${full:?}" = "true" ]; then
-			run_process "Update really world" compile "-ueDN world --complete-graph=y --with-bdeps=y" || return
+			run_process "Update really world" compile -ueDN world --complete-graph=y --with-bdeps=y || return
 		else
 			# Force compiles the live packages
 			if [ "${live:?}" = "true" ]; then
-				run_process "Update live packages" compile "@live-rebuild" || return
+				run_process "Update live packages" compile @live-rebuild || return
 			fi
-
-			local sets
 
 			# Compile sets
-			sets="-u ${packages}"
+			sets=(-u "${package_args[@]}")
 			if [ "${security:?}" = "true" ]; then
 				# Update security
-				sets="${sets} @security"
+				sets+=(@security)
 			fi
 			if [ "${go:?}" = "true" ]; then
-				sets="${sets} @golang-rebuild"
+				sets+=(@golang-rebuild)
 			fi
 			if [ "${modules:?}" = "true" ]; then
-				sets="${sets} @modules-rebuild"
+				sets+=(@modules-rebuild)
 			fi
 
-			run_process "Update sets" compile "${sets}" || return
+			run_process "Update sets" compile "${sets[@]}" || return
 		fi
 	fi
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Remove old packages
 		if [ "${clean:?}" = 'true' ]; then
-			command --pretend-safe "emerge --depclean${pretend}${exclude}" || return
+			command --pretend-safe emerge --depclean "${pretend_args[@]}" "${exclude_args[@]}" || return
 		fi
 
-		run_process "Rebuild preserved packages" command --pretend-safe "emerge${pretend} @preserved-rebuild" || return
+		run_process "Rebuild preserved packages" command --pretend-safe emerge "${pretend_args[@]}" @preserved-rebuild || return
 
 		if [ ! "${pretend}" ]; then
 			# Recompile all perl packages
-			run_process "Update perl packages" command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}" || return
+			run_process "Update perl packages" command /usr/sbin/perl-cleaner --all -- "${color_args[@]}" -v --fail-clean y "${binary_args[@]}" "${pretend_args[@]}" || return
 
 			if [ "${check:?}" = 'true' ]; then
 				# Check system integrity: Reverse Dependency Rebuilder
-				command "revdep-rebuild -i -v -- -v ${color} --fail-clean y${binary}${pretend}" || return
+				command revdep-rebuild -i -v -- -v "${color_args[@]}" --fail-clean y "${binary_args[@]}" "${pretend_args[@]}" || return
 
 				# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
 			fi
@@ -836,17 +882,17 @@ main() {
 
 		if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
 			# Execute command after all
-			command "${GLUS_AFTER_COMPILE}" || return
+			run_config_command "${GLUS_AFTER_COMPILE}" || return
 		fi
 
 		# Check and fix problems in the world file
-		command --pretend-safe "emaint${pretend} world" || return
+		command --pretend-safe emaint "${pretend_args[@]}" world || return
 
 		if [ "${clean:?}" = 'true' ]; then
-			if [ "${binary}" ]; then
-				command --pretend-safe "eclean -C -d${pretend} packages" || return
+			if [ "${#binary_args[@]}" -gt 0 ]; then
+				command --pretend-safe eclean -C -d "${pretend_args[@]}" packages || return
 			fi
-			command --pretend-safe "eclean -C -d${pretend} distfiles" || return
+			command --pretend-safe eclean -C -d "${pretend_args[@]}" distfiles || return
 		fi
 	fi
 
