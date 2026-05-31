@@ -130,10 +130,12 @@ opt_parse() {
 		'-e' | '--exclude')
 			opt_arg_str "${@-}"
 			exclude="${optArg:?}"
+			shift "${optShift:?}"
 			;;
 		'-p' | '--packages')
 			opt_arg_str "${@-}"
 			packages="${optArg:?}"
+			shift "${optShift:?}"
 			;;
 		'-P' | '--pretend' | '--no-pretend')
 			opt_arg_bool "${@-}"
@@ -186,6 +188,7 @@ opt_parse() {
 		'-b' | '--binary')
 			opt_arg_str "${@-}"
 			binary="${optArg:?}"
+			shift "${optShift:?}"
 			;;
 		'--no-binary')
 			binary='false'
@@ -203,6 +206,7 @@ opt_parse() {
 		'--email' | '-email')
 			opt_arg_str "${@-}"
 			email="${optArg:?}"
+			shift "${optShift:?}"
 			;;
 		'-v' | '--version') show_version ;;
 		'-h' | '--help') show_help ;;
@@ -263,7 +267,7 @@ opt_arg_str() {
 
 	[ "${optArg:0:1}" == "-" ] && opt_die "Non a valid argument for ${1:?} option"
 
-	optArgNext='1'
+	optArgNext=0
 }
 
 opt_arg_bool() {
