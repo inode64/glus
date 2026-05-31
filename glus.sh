@@ -428,6 +428,121 @@ run_config_command() {
 	command "${config_args[@]}"
 }
 
+validate_bool() {
+	local name value
+
+	name="${1:?}"
+	value="${2-}"
+
+	case "${value}" in
+	'true' | 'false') return 0 ;;
+	*) print_error "Invalid ${name}: ${value}. Expected true or false." ;;
+	esac
+
+	return 1
+}
+
+validate_choice() {
+	local choice choices name value
+
+	name="${1:?}"
+	value="${2-}"
+	shift 2
+
+	for choice in "$@"; do
+		if [ "${value}" = "${choice}" ]; then
+			return 0
+		fi
+		choices="${choices:+${choices}|}${choice}"
+	done
+
+	print_error "Invalid ${name}: ${value}. Expected one of: ${choices}."
+	return 1
+}
+
+validate_email() {
+	local name value
+
+	name="${1:?}"
+	value="${2-}"
+
+	if [ ! "${value}" ]; then
+		return 0
+	fi
+
+	if [[ "${value}" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+		return 0
+	fi
+
+	print_error "Invalid ${name}: ${value}. Expected an email address."
+	return 1
+}
+
+validate_config_command() {
+	local name value
+	local -a command_args
+
+	name="${1:?}"
+	value="${2-}"
+
+	if [ ! "${value}" ]; then
+		return 0
+	fi
+
+	case "${value}" in
+	*[\;\|\&\<\>\`]*)
+		print_error "Invalid ${name}: shell operators are not supported. Use a wrapper script instead."
+		return 1
+		;;
+	esac
+
+	read -r -a command_args <<<"${value}"
+	if [ "${#command_args[@]}" -eq 0 ]; then
+		return 0
+	fi
+
+	if [[ "${command_args[0]}" = */* ]]; then
+		[ -x "${command_args[0]}" ] && return 0
+	else
+		builtin command -v "${command_args[0]}" >/dev/null 2>&1 && return 0
+	fi
+
+	print_error "Invalid ${name}: command not found: ${command_args[0]}"
+	return 1
+}
+
+validate_config() {
+	local ret
+
+	ret=0
+
+	validate_bool GLUS_SYNC "${sync}" || ret=1
+	validate_bool GLUS_FETCH "${fetch}" || ret=1
+	validate_bool GLUS_PRETEND "${pretend}" || ret=1
+	validate_bool GLUS_CHECK "${check}" || ret=1
+	validate_bool GLUS_CLEAN "${clean}" || ret=1
+	validate_bool GLUS_GO "${go}" || ret=1
+	validate_bool GLUS_MODULES "${modules}" || ret=1
+	validate_bool GLUS_LIVE "${live}" || ret=1
+	validate_bool GLUS_SECURITY "${security}" || ret=1
+	validate_bool GLUS_QUIET "${quiet}" || ret=1
+	validate_bool GLUS_DEBUG "${debug}" || ret=1
+	validate_bool system "${system}" || ret=1
+	validate_bool world "${world}" || ret=1
+	validate_bool full "${full}" || ret=1
+
+	validate_choice GLUS_BINARY "${binary}" false true only auto autoonly || ret=1
+	validate_choice GLUS_COLOR "${color}" true false auto || ret=1
+	validate_email GLUS_EMAIL "${email}" || ret=1
+
+	validate_config_command GLUS_BEFORE_SYNC "${GLUS_BEFORE_SYNC-}" || ret=1
+	validate_config_command GLUS_AFTER_SYNC "${GLUS_AFTER_SYNC-}" || ret=1
+	validate_config_command GLUS_BEFORE_COMPILE "${GLUS_BEFORE_COMPILE-}" || ret=1
+	validate_config_command GLUS_AFTER_COMPILE "${GLUS_AFTER_COMPILE-}" || ret=1
+
+	return "${ret}"
+}
+
 start_process() {
 	START=$(date +%s)
 	print_info "$@"
@@ -721,6 +836,8 @@ main() {
 		opt_parse "${@-}"
 		set -- ${posArgs-} >/dev/null
 	}
+
+	validate_config || return 2
 
 	# Define terminal colors if the color option is enabled or in auto mode if STDOUT is attached to a TTY and the
 	# "NO_COLOR" variable is not set (https://no-color.org).
