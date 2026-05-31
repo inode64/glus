@@ -304,10 +304,6 @@ enable_dry_run() {
 
 # Show help and quit.
 show_help() {
-	if [ "${dry_run-}" = 'true' ]; then
-		enable_dry_run
-	fi
-
 	printf '%s\n' "$(
 		sed -e 's/%NL/\n/g' <<-EOF
 			  Gentoo Linux update system%NL
