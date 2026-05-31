@@ -75,8 +75,7 @@ clean_portage_dir() {
 	fi
 
 	# Check if other instances of emerge are running before deleting temporary files
-	# shellcheck disable=SC2046
-	if [ $(pgrep -c emerge) -eq 0 ]; then
+	if ! pgrep -q emerge; then
 		rm -rf /var/tmp/portage/* 2>/dev/null
 	fi
 }
