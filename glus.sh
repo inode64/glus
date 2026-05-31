@@ -401,16 +401,40 @@ stop_process() {
 	print_info "Process time: $((result / 3600))h $(((result / 60) % 60))m $((result % 60))s"
 }
 
+run_process() {
+	local ret title
+
+	title="${1:?}"
+	shift
+
+	start_process "${title}"
+	"$@"
+	ret=$?
+	stop_process
+
+	return "${ret}"
+}
+
 # Auto merge portage config
 etc_update_portage() {
 	if [ ! "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
-		command "/usr/sbin/etc-update --automode -5 /etc/portage &>/dev/null"
+		command "/usr/sbin/etc-update --automode -5 /etc/portage &>/dev/null" || return
 	fi
+
+	return 0
 }
 
 # Compile
 compile() {
-	local try emerge
+	local command_flags count_errors fetch_ok try emerge
+
+	command_flags=()
+	count_errors='true'
+	if [ "${1-}" = '--no-error-count' ]; then
+		command_flags=(--no-error-count)
+		count_errors='false'
+		shift
+	fi
 
 	# Update binutils, gcc
 	update_devel &>/dev/null
@@ -421,37 +445,61 @@ compile() {
 
 	if [ ! "${pretend}" ]; then
 		# First try download all files
+		fetch_ok='false'
 		while true; do
 			# shellcheck disable=SC2048
-			if command "${emerge} -f -1 --keep-going --fail-clean y${color}${exclude}${EMERGE_OPTS} $*"; then
+			if command --no-error-count "${emerge} -f -1 --keep-going --fail-clean y${color}${exclude}${EMERGE_OPTS} $*"; then
+				fetch_ok='true'
 				break
 			fi
 
 			((--try)) || break
 			sleep 300
 		done
+
+		if [ "${fetch_ok}" != 'true' ]; then
+			print_error "Failed to fetch packages: $*"
+			if [ "${count_errors}" = 'true' ]; then
+				((++errors))
+			fi
+			return 1
+		fi
 	fi
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Compile
-		command --pretend-safe "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*"
+		command --pretend-safe "${command_flags[@]}" "${emerge} -v -1 --keep-going --fail-clean y${color}${exclude}${binary}${pretend} $*" || return
 
 		# Update broken merges
-		command --pretend-safe "emaint${pretend} merges"
+		command --pretend-safe "${command_flags[@]}" "emaint${pretend} merges" || return
 
 		# Update binutils, gcc
 		update_devel &>/dev/null
 	fi
+
+	return 0
 }
 
 command() {
-	local err run_in_pretend temp_file
+	local count_errors err run_in_pretend temp_file
 
+	count_errors='true'
 	run_in_pretend='false'
-	if [ "${1-}" = '--pretend-safe' ]; then
-		run_in_pretend='true'
-		shift
-	fi
+	while [ "${1-}" ]; do
+		case "${1}" in
+		'--pretend-safe')
+			run_in_pretend='true'
+			shift
+			;;
+		'--no-error-count')
+			count_errors='false'
+			shift
+			;;
+		*)
+			break
+			;;
+		esac
+	done
 
 	print_info "$@"
 
@@ -480,9 +528,14 @@ command() {
 			eval "$*" 2>&1 | tee "${temp_file}"
 			err=${PIPESTATUS[0]}
 		fi
-		if [[ ${err} -ne 0 && ${email} ]]; then
+	fi
+
+	if [ "${err}" -ne 0 ]; then
+		if [ "${count_errors}" = 'true' ]; then
 			((++errors))
-			tail -n1000 "${temp_file}" | mailx -s "Gentoo update error: $*" "${email}"
+			if [ "${email}" ] && [ -f "${temp_file}" ]; then
+				tail -n1000 "${temp_file}" | mailx -s "Gentoo update error: $*" "${email}"
+			fi
 		fi
 	fi
 
@@ -665,65 +718,59 @@ main() {
 	if [ "${sync:?}" = 'true' ]; then
 		if [ "${GLUS_BEFORE_SYNC}" ]; then
 			# Execute command before sync portage
-			command "${GLUS_BEFORE_SYNC}"
+			command "${GLUS_BEFORE_SYNC}" || return
 		fi
 
-		start_process "Sync portage"
-		command "emaint -a sync"
-		stop_process
+		run_process "Sync portage" command "emaint -a sync" || return
 
 		if [ "${GLUS_AFTER_SYNC}" ]; then
 			# Execute command after sync portage
-			command "${GLUS_AFTER_SYNC}"
+			command "${GLUS_AFTER_SYNC}" || return
 		fi
 	fi
 
 	if [ "${GLUS_BEFORE_COMPILE}" ] && [ ! "${pretend}" ]; then
 		# Execute command before compile
-		command "${GLUS_BEFORE_COMPILE}"
+		command "${GLUS_BEFORE_COMPILE}" || return
 	fi
 
 	# Empty portage tmp dir
 	clean_portage_dir
 
 	# Update config in /etc/portage
-	etc_update_portage
+	etc_update_portage || return
 
 	# First update the portage
-	start_process "Update portage"
-	compile "-u portage"
-	stop_process
+	run_process "Update portage" compile "-u portage" || return
 
 	# Fix compile errors when /usr/include/crypt.h is missing
 	if [ ! -e /usr/include/crypt.h ]; then
-		compile "-1u sys-libs/libxcrypt"
+		compile "-1u sys-libs/libxcrypt" || return
 	fi
 
 	# Update the system base
 	if [ "${system:?}" = "true" ]; then
+		local ret
+
 		start_process "Update system"
 		# First try to compile all updates
-		compile "-uDN system"
+		compile --no-error-count "-uDN system" || print_warn "Full system update failed, trying basic system update"
 		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
 		compile "-u system"
+		ret=$?
 		stop_process
+		[ "${ret}" -eq 0 ] || return "${ret}"
 	fi
 
 	if [ "${world:?}" = "true" ]; then
-		start_process "Update world"
-		compile "-uDN world --complete-graph=y --with-bdeps=y"
-		stop_process
+		run_process "Update world" compile "-uDN world --complete-graph=y --with-bdeps=y" || return
 	else
 		if [ "${full:?}" = "true" ]; then
-			start_process "Update really world"
-			compile "-ueDN world --complete-graph=y --with-bdeps=y"
-			stop_process
+			run_process "Update really world" compile "-ueDN world --complete-graph=y --with-bdeps=y" || return
 		else
 			# Force compiles the live packages
 			if [ "${live:?}" = "true" ]; then
-				start_process "Update live packages"
-				compile "@live-rebuild"
-				stop_process
+				run_process "Update live packages" compile "@live-rebuild" || return
 			fi
 
 			local sets
@@ -741,31 +788,25 @@ main() {
 				sets="${sets} @modules-rebuild"
 			fi
 
-			start_process "Update sets"
-			compile "${sets}"
-			stop_process
+			run_process "Update sets" compile "${sets}" || return
 		fi
 	fi
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Remove old packages
 		if [ "${clean:?}" = 'true' ]; then
-			command --pretend-safe "emerge --depclean${pretend}${exclude}"
+			command --pretend-safe "emerge --depclean${pretend}${exclude}" || return
 		fi
 
-		start_process "Rebuild preserved packages"
-		command --pretend-safe "emerge${pretend} @preserved-rebuild"
-		stop_process
+		run_process "Rebuild preserved packages" command --pretend-safe "emerge${pretend} @preserved-rebuild" || return
 
 		if [ ! "${pretend}" ]; then
 			# Recompile all perl packages
-			start_process "Update perl packages"
-			command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}"
-			stop_process
+			run_process "Update perl packages" command "/usr/sbin/perl-cleaner --all -- ${color} -v --fail-clean y${binary}${pretend}" || return
 
 			if [ "${check:?}" = 'true' ]; then
 				# Check system integrity: Reverse Dependency Rebuilder
-				command "revdep-rebuild -i -v -- -v ${color} --fail-clean y${binary}${pretend}"
+				command "revdep-rebuild -i -v -- -v ${color} --fail-clean y${binary}${pretend}" || return
 
 				# TODO: verify integrity of installed packages -> qcheck -B -v ; qcheck <package>
 			fi
@@ -773,22 +814,27 @@ main() {
 
 		if [ "${GLUS_AFTER_COMPILE}" ] && [ ! "${pretend}" ]; then
 			# Execute command after all
-			command "${GLUS_AFTER_COMPILE}"
+			command "${GLUS_AFTER_COMPILE}" || return
 		fi
 
 		# Check and fix problems in the world file
-		command --pretend-safe "emaint${pretend} world"
+		command --pretend-safe "emaint${pretend} world" || return
 
 		if [ "${clean:?}" = 'true' ]; then
 			if [ "${binary}" ]; then
-				command --pretend-safe "eclean -C -d${pretend} packages"
+				command --pretend-safe "eclean -C -d${pretend} packages" || return
 			fi
-			command --pretend-safe "eclean -C -d${pretend} distfiles"
+			command --pretend-safe "eclean -C -d${pretend} distfiles" || return
 		fi
 	fi
 
 	# Check if they have changed any programs and need to reload
 	change_versions
+
+	if [ "${errors}" -ne 0 ]; then
+		print_error "${errors} command(s) failed"
+		return 1
+	fi
 }
 
 main "${@-}"
