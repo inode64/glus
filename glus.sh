@@ -10,9 +10,22 @@
 
 # TODO: Use different ways to send mail (https://linuxhint.com/bash_script_send_email)
 
-# Check if other instances of glus.sh are running
-# shellcheck disable=SC2046
-if [ $(pgrep -c glus.sh) -gt 1 ]; then
+# Check if other instances of glus.sh are running.
+if ! command -v flock >/dev/null 2>&1; then
+	printf '%s\n' 'flock command not found' >&2
+	exit 1
+fi
+
+if [ -d /run/lock ] && [ -w /run/lock ]; then
+	LOCK_FILE='/run/lock/glus.lock'
+else
+	LOCK_FILE="${TMPDIR:-/tmp}/glus.lock"
+fi
+exec {LOCK_FD}>"${LOCK_FILE}" || {
+	printf 'Unable to open lock file: %s\n' "${LOCK_FILE}" >&2
+	exit 1
+}
+if ! flock -n "${LOCK_FD}"; then
 	exit 0
 fi
 
@@ -23,6 +36,8 @@ if [ -z "${ETCDIR+x}" ]; then ETCDIR='/etc'; fi
 SYS_CONF_FILE="${ETCDIR?}/portage/glus.conf"
 
 declare -r ETCDIR
+declare -r LOCK_FD
+declare -r LOCK_FILE
 declare -r SYS_CONF_FILE
 
 LOGS=$(mktemp -d)
