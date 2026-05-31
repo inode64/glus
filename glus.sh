@@ -879,11 +879,9 @@ main() {
 	full="false"
 
 	# Parse command line options.
+	opt_parse "${@-}"
 	# shellcheck disable=SC2086
-	{
-		opt_parse "${@-}"
-		set -- ${posArgs-} >/dev/null
-	}
+	set -- ${posArgs-}
 
 	if [ "${dry_run:?}" = 'true' ]; then
 		enable_dry_run
