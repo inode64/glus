@@ -36,7 +36,6 @@ if [ -z "${ETCDIR+x}" ]; then ETCDIR='/etc'; fi
 SYS_CONF_FILE="${ETCDIR?}/portage/glus.conf"
 
 declare -r ETCDIR
-declare -r LOCK_FD
 declare -r LOCK_FILE
 declare -r SYS_CONF_FILE
 
