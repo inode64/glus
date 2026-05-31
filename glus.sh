@@ -54,7 +54,7 @@ cleanup() {
 
 # Remove unnecessary files in /var/tmp/portage
 clean_portage_dir() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -66,7 +66,7 @@ clean_portage_dir() {
 }
 
 Last_binutils() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -83,7 +83,7 @@ Last_binutils() {
 }
 
 Last_gcc() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -100,7 +100,7 @@ Last_gcc() {
 }
 
 update_devel() {
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug}" ]; then
+	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
@@ -395,7 +395,7 @@ stop_process() {
 
 # Auto merge portage config
 etc_update_portage() {
-	if [ ! "${pretend}" ] || [ "${debug}" ]; then
+	if [ ! "${pretend}" ] || [ "${debug:?}" = 'true' ]; then
 		command "/usr/sbin/etc-update --automode -5 /etc/portage &>/dev/null"
 	fi
 }
