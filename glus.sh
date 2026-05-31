@@ -449,20 +449,24 @@ command() {
 	if [ "${pretend}" ]; then
 		# shellcheck disable=SC2048
 		eval "$*" 2>/dev/null
+		err=$?
 	else
 		if [ "${quiet:?}" = 'true' ]; then
 			# shellcheck disable=SC2048
 			eval "$*" &>"${temp_file}"
+			err=$?
 		else
 			# shellcheck disable=SC2048
-			eval "$*" | tee "${temp_file}"
+			eval "$*" 2>&1 | tee "${temp_file}"
+			err=${PIPESTATUS[0]}
 		fi
-		err=$?
 		if [[ ${err} -ne 0 && ${email} ]]; then
 			((++errors))
 			tail -n1000 "${temp_file}" | mailx -s "Gentoo update error: $*" "${email}"
 		fi
 	fi
+
+	return "${err}"
 }
 
 check_pkg() {
