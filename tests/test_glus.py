@@ -284,6 +284,17 @@ rebuild_perl
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn('UNEXPECTED_EXECUTION', result.stdout)
 
+    def test_perl_rebuild_allows_unset_portage_defaults(self):
+        result = bash('''
+dry_run=false; debug=false
+color_args=(); exclude_args=(); emerge_opts_args=(); binary_args=(); pretend_args=()
+portageq() { printf '\\n'; return 1; }
+command() { printf '%s\\n' "$@"; }
+rebuild_perl
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('/usr/sbin/perl-cleaner\n--all', result.stdout)
+
     def compile_commands(self, binary='', options='', fetch='false'):
         result = bash(f'''
 fetch={fetch}; pretend=false; debug=false; errors=0

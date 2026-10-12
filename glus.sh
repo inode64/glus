@@ -944,7 +944,7 @@ emerge_action() {
 }
 
 rebuild_perl() {
-	local defaults="${EMERGE_DEFAULT_OPTS-}"
+	local defaults="${EMERGE_DEFAULT_OPTS-}" ret
 	local -a emerge_args
 	build_emerge_args
 	if [ "${#binary_args[@]}" -gt 0 ]; then
@@ -953,7 +953,16 @@ rebuild_perl() {
 		command /usr/sbin/perl-cleaner --all -- -v --fail-clean y "${emerge_args[@]}"
 	else
 		if [ "${dry_run-}" != true ] && [ "${debug-}" != true ]; then
-			defaults=$(portageq envvar EMERGE_DEFAULT_OPTS) || return
+			if defaults=$(portageq envvar EMERGE_DEFAULT_OPTS); then
+				:
+			else
+				ret=$?
+				# portageq returns 1 with empty output for an unset variable.
+				if [ "${ret}" -ne 1 ] || [ -n "${defaults}" ]; then
+					print_error 'Unable to read Portage default options for perl-cleaner'
+					return "${ret}"
+				fi
+			fi
 		fi
 		# Use Portage's regular option environment for source rebuilds. Preserve
 		# make.conf defaults, with Glus options taking precedence for this child.
