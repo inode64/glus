@@ -70,14 +70,22 @@ cleanup() {
 
 # Remove unnecessary files in /var/tmp/portage
 clean_portage_dir() {
+	local ret
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
 
 	# Check if other instances of emerge are running before deleting temporary files
-	if ! pgrep -q emerge; then
-		rm -rf /var/tmp/portage/* 2>/dev/null
+	if pgrep -x emerge >/dev/null; then
+		return 0
+	else
+		ret=$?
 	fi
+	if [ "${ret}" -ne 1 ]; then
+		print_error "Unable to check for running emerge processes (exit ${ret}); skipping cleanup"
+		return "${ret}"
+	fi
+	rm -rf /var/tmp/portage/*
 }
 
 Last_binutils() {
@@ -1021,7 +1029,7 @@ main() {
 	fi
 
 	# Empty portage tmp dir
-	clean_portage_dir
+	clean_portage_dir || return
 
 	# Update config in /etc/portage
 	etc_update_portage || return

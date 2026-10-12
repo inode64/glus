@@ -21,6 +21,36 @@ def bash(code):
     )
 
 
+class PortageCleanup(unittest.TestCase):
+    def test_only_missing_processes_allow_cleanup(self):
+        for status in (0, 1, 2, 3, 127):
+            with self.subTest(status=status):
+                result = bash(f'''
+fetch=false; pretend=false; debug=false
+pgrep() {{
+    if [ "$*" != '-x emerge' ]; then return 2; fi
+    return {status}
+}}
+rm() {{ printf 'DELETE'; }}
+clean_portage_dir
+''')
+                self.assertEqual(result.stdout, 'DELETE' if status == 1 else '')
+                self.assertEqual(result.returncode, 0 if status in (0, 1) else status)
+                if status > 1:
+                    self.assertIn('skipping cleanup', result.stderr)
+
+    def test_simulation_and_fetch_skip_cleanup(self):
+        for mode in ('fetch', 'pretend', 'debug'):
+            result = bash(f'''
+fetch=false; pretend=false; debug=false; {mode}=true
+pgrep() {{ printf 'CHECK'; }}
+rm() {{ printf 'DELETE'; }}
+clean_portage_dir
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+
+
 class Hooks(unittest.TestCase):
     def test_rejects_code_in_validation_and_execution(self):
         for payload in (
