@@ -709,7 +709,7 @@ compile() {
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Compile
-		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" "$@" || return
+		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" "$@" || return
 
 		# Update broken merges
 		command --pretend-safe "${command_flags[@]}" emaint "${pretend_args[@]}" merges || return

@@ -137,6 +137,13 @@ compile -u portage
             self.assertNotIn('-k', command)
             self.assertNotIn('-K', command)
 
+    def test_emerge_options_apply_to_both_phases(self):
+        commands = self.compile_commands(options='--jobs=2 --load-average=4')
+        self.assertEqual(len(commands), 2)
+        for command in commands:
+            self.assertIn('--jobs=2', command)
+            self.assertIn('--load-average=4', command)
+
 
 if __name__ == "__main__":
     unittest.main()
