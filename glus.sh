@@ -95,16 +95,16 @@ Last_binutils() {
 
 	local last
 
-	last=$(/usr/bin/binutils-config -l 2>/dev/null | wc -l)
+	last=$(set -o pipefail; /usr/bin/binutils-config -l | wc -l) || return
 	if ! [ "${last}" -gt 0 ] 2>/dev/null; then
 		return 0
 	fi
 
-	/usr/bin/binutils-config "${last}"
-	/usr/sbin/env-update 2>/dev/null
+	/usr/bin/binutils-config "${last}" || return
+	/usr/sbin/env-update || return
 
 	# shellcheck disable=SC1091
-	. /etc/profile
+	. /etc/profile || return
 
 	return 0
 }
@@ -116,16 +116,16 @@ Last_gcc() {
 
 	local last
 
-	last=$(/usr/bin/gcc-config -l 2>/dev/null | wc -l)
+	last=$(set -o pipefail; /usr/bin/gcc-config -l | wc -l) || return
 	if ! [ "${last}" -gt 0 ] 2>/dev/null; then
 		return 0
 	fi
 
-	/usr/bin/gcc-config "${last}"
-	/usr/sbin/env-update 2>/dev/null
+	/usr/bin/gcc-config "${last}" || return
+	/usr/sbin/env-update || return
 
 	# shellcheck disable=SC1091
-	. /etc/profile
+	. /etc/profile || return
 
 	return 0
 }
@@ -135,14 +135,14 @@ update_devel() {
 		return
 	fi
 
-	etc-update -p
+	etc-update -p || return
 
-	Last_binutils
-	Last_gcc
+	Last_binutils || return
+	Last_gcc || return
 
 	# We update 2 times in case the new python does not exist yet
-	eselect python update --python3
-	etc-update --automode -5 /etc/python-exec
+	eselect python update --python3 || return
+	etc-update --automode -5 /etc/python-exec || return
 	eselect python update --python3
 }
 
@@ -683,7 +683,7 @@ compile() {
 	fi
 
 	# Update binutils, gcc
-	update_devel &>/dev/null
+	command --discard-output "${command_flags[@]}" update_devel || return
 
 	if ! emerge=$(find_emerge); then
 		if [ "${count_errors}" = 'true' ]; then
@@ -723,7 +723,7 @@ compile() {
 		command --pretend-safe "${command_flags[@]}" emaint "${pretend_args[@]}" merges || return
 
 		# Update binutils, gcc
-		update_devel &>/dev/null
+		command --discard-output "${command_flags[@]}" update_devel || return
 	fi
 
 	return 0

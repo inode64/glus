@@ -228,6 +228,61 @@ compile -u portage
             self.assertIn('--load-average=4', command)
 
 
+class ToolchainFailures(unittest.TestCase):
+    def test_failure_before_or_after_compile_is_reported(self):
+        for fail_at in (1, 2):
+            for flag, expected_errors in (('', 1), ('--no-error-count', 0)):
+                with self.subTest(fail_at=fail_at, flag=flag), tempfile.TemporaryDirectory() as logs:
+                    result = bash(f'''
+LOGS='{logs}'; errors=0; email=''; quiet=true; NO_STDOUT=true
+fetch=false; pretend=false; debug=false; calls=0
+color_args=(); exclude_args=(); binary_args=(); pretend_args=(); emerge_opts_args=()
+update_devel() {{
+    ((++calls))
+    if [ "$calls" -eq {fail_at} ]; then echo TOOLCHAIN_FAILED >&2; return 42; fi
+    return 0
+}}
+find_emerge() {{ printf true; }}
+emaint() {{ :; }}
+compile {flag} -u portage
+ret=$?
+printf 'calls=%s errors=%s' "$calls" "$errors"
+exit "$ret"
+''')
+                    self.assertEqual(result.returncode, 42, result.stderr)
+                    self.assertEqual(result.stdout, f'calls={fail_at} errors={expected_errors}')
+                    self.assertIn('TOOLCHAIN_FAILED', result.stderr)
+
+    def test_each_preparation_step_stops_on_failure(self):
+        for fail_at in range(1, 7):
+            result = bash(f'''
+fetch=false; pretend=false; debug=false; calls=0
+step() {{ ((++calls)); [ "$calls" -ne {fail_at} ] || return 42; }}
+etc-update() {{ step; }}
+Last_binutils() {{ step; }}
+Last_gcc() {{ step; }}
+eselect() {{ step; }}
+update_devel
+ret=$?
+printf '%s' "$calls"
+exit "$ret"
+''')
+            self.assertEqual(result.returncode, 42, result.stderr)
+            self.assertEqual(result.stdout, str(fail_at))
+
+    def test_toolchain_environment_survives_command_capture(self):
+        with tempfile.TemporaryDirectory() as logs:
+            result = bash(f'''
+LOGS='{logs}'; errors=0; email=''; quiet=true; NO_STDOUT=true
+pretend=false; debug=false
+update_devel() {{ export GLUS_TEST_COMPILER=new; }}
+command --discard-output update_devel
+printf '%s' "$GLUS_TEST_COMPILER"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'new')
+
+
 class ErrorOutput(unittest.TestCase):
     def run_command(self, exit_code=7, flags='', quiet='true', pretend='false'):
         with tempfile.TemporaryDirectory(prefix='glus-test-') as logs:
