@@ -181,12 +181,15 @@ opt_parse() {
 			email="${optArg:?}"
 			shift "${optShift:?}"
 			;;
-		'--notify' | '--log-dir' | '--log-retention-days')
+		'--notify' | '--log-dir' | '--log-retention-days' | '--fetch-attempts' | '--fetch-delay' | '--cancel-grace')
 			opt_arg_str "$@"
 			case "$1" in
 			--notify) notify_mode="${optArg}" ;;
 			--log-dir) log_dir="${optArg}" ;;
 			--log-retention-days) log_retention="${optArg}" ;;
+			--fetch-attempts) fetch_attempts="${optArg}" ;;
+			--fetch-delay) fetch_delay="${optArg}" ;;
+			--cancel-grace) cancel_grace="${optArg}" ;;
 			esac
 			shift "${optShift}"
 			;;
@@ -344,6 +347,12 @@ show_help() {
 	        Persistent run logs (default: ${log_dir}).%NL
 	     --log-retention-days <days>, \${GLUS_LOG_RETENTION_DAYS}
 	        Keep completed runs for this many days; 0 keeps all (default: ${log_retention}).%NL
+	     --fetch-attempts <count>, \${GLUS_FETCH_ATTEMPTS}
+	        Total fetch attempts (default: ${fetch_attempts}).%NL
+	     --fetch-delay <seconds>, \${GLUS_FETCH_DELAY}
+	        Delay between fetch attempts (default: ${fetch_delay}).%NL
+	     --cancel-grace <seconds>, \${GLUS_CANCEL_GRACE}
+	        Grace period before killing remaining update processes (default: ${cancel_grace}).%NL
 	     -v, --version
 	        Show version number and quit.%NL
 	     -h, --help
@@ -553,6 +562,9 @@ validate_config() {
 	validate_email GLUS_EMAIL "${email}" || ret=1
 	validate_choice GLUS_NOTIFY "${notify_mode}" failures always never || ret=1
 	validate_integer GLUS_LOG_RETENTION_DAYS "${log_retention}" 0 36500 || ret=1
+	validate_integer GLUS_FETCH_ATTEMPTS "${fetch_attempts}" 1 100 || ret=1
+	validate_integer GLUS_FETCH_DELAY "${fetch_delay}" 0 86400 || ret=1
+	validate_integer GLUS_CANCEL_GRACE "${cancel_grace}" 0 300 || ret=1
 	if [[ "${log_dir}" != /* ]] || [[ "${log_dir}" == *[$'\n\r\t']* ]]; then
 		print_error 'GLUS_LOG_DIR must be an absolute path without control whitespace'
 		ret=1
@@ -640,7 +652,7 @@ find_emerge() {
 
 # Compile
 compile() {
-	local command_flags count_errors fetch_ok try emerge
+	local command_flags count_errors fetch_ok try emerge ret
 	local -a emerge_args
 
 	command_flags=()
@@ -661,7 +673,7 @@ compile() {
 		return 1
 	fi
 	build_emerge_args
-	try=3
+	try=1
 
 	if [ "${pretend}" != 'true' ]; then
 		# First try download all files
@@ -670,10 +682,16 @@ compile() {
 			if command --no-error-count "${emerge}" -f -1 --keep-going --fail-clean y "${emerge_args[@]}" "$@"; then
 				fetch_ok='true'
 				break
+			else
+				ret=$?
 			fi
 
-			((--try)) || break
-			sleep 300
+			[ "${try}" -lt "${fetch_attempts:-3}" ] || break
+			fetch_retryable "${ret}" || break
+			print_warn "Fetch attempt ${try}/${fetch_attempts:-3} failed; retrying in ${fetch_delay:-300}s"
+			[ -z "${LOGS-}" ] || printf 'Fetch retry after exit %s; delay %ss\n' "${ret}" "${fetch_delay:-300}" >>"${LOGS}/retries.log"
+			sleep "${fetch_delay:-300}" || return
+			((++try))
 		done
 
 		if [ "${fetch_ok}" != 'true' ]; then
@@ -681,7 +699,7 @@ compile() {
 			if [ "${count_errors}" = 'true' ]; then
 				((++errors))
 			fi
-			return 1
+			return "${ret}"
 		fi
 	fi
 
@@ -699,6 +717,18 @@ compile() {
 	return 0
 }
 
+fetch_retryable() {
+	# Portage uses exit 1 for several causes, including transient download errors.
+	# Known invocation failures and signal exits must never be retried.
+	case "$1" in 2 | 126 | 127) return 1 ;; esac
+	[ "$1" -lt 128 ] || return 1
+	if [ -n "${LAST_COMMAND_LOG-}" ] && [ -f "${LAST_COMMAND_LOG}" ]; then
+		if grep -Eq 'Invalid atom|is not a valid package atom|unrecognized arguments:|no such option:' "${LAST_COMMAND_LOG}"; then
+			return 1
+		fi
+	fi
+	return 0
+}
 
 command() {
 	local count_errors discard_output err run_in_pretend temp_file command_started
@@ -752,6 +782,7 @@ command() {
 		print_error 'Unable to create a command log; command was not executed'
 		return 1
 	fi
+	LAST_COMMAND_LOG="${temp_file}"
 	command_started=$SECONDS
 	printf 'Step: %s\nCommand: %s\nStatus: running\n' "${CURRENT_STEP_ID:-standalone}" "$(format_command "$@")" >"${temp_file}.meta" || return
 
@@ -988,14 +1019,29 @@ prune_run_logs() {
 
 supervise_plan() {
 	local ret
-	execute_plan
+	# Job control gives the worker and its descendants a dedicated process group.
+	set -m
+	(set +m; trap - EXIT TERM INT HUP; execute_plan) </dev/null &
+	ACTIVE_PID=$!
+	set +m
+	wait "${ACTIVE_PID}"
 	ret=$?
+	ACTIVE_PID=''
 	finalize_run "${ret}"
 	return "${ret}"
 }
 
 cancel_active_run() {
-	return 0
+	local deadline
+	[ -n "${ACTIVE_PID-}" ] || return 0
+	kill -TERM -- "-${ACTIVE_PID}" 2>/dev/null || :
+	deadline=$((SECONDS + ${cancel_grace:-10}))
+	while kill -0 -- "-${ACTIVE_PID}" 2>/dev/null && ((SECONDS < deadline)); do
+		sleep 0.1
+	done
+	kill -KILL -- "-${ACTIVE_PID}" 2>/dev/null || :
+	wait "${ACTIVE_PID}" 2>/dev/null || :
+	ACTIVE_PID=''
 }
 
 finalize_run() {
@@ -1174,6 +1220,9 @@ main() {
 
 	log_dir="${GLUS_LOG_DIR:-/var/log/glus}"
 	log_retention="${GLUS_LOG_RETENTION_DAYS-30}"
+	fetch_attempts="${GLUS_FETCH_ATTEMPTS-3}"
+	fetch_delay="${GLUS_FETCH_DELAY-300}"
+	cancel_grace="${GLUS_CANCEL_GRACE-10}"
 	notify_mode="${GLUS_NOTIFY-failures}"
 
 	# Parse command line options.

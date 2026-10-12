@@ -20,7 +20,6 @@ GLUS_LOG_DIR={shlex.quote(str(root / 'logs'))}
 GLUS_LOCK_FILE={shlex.quote(str(root / 'lock'))}
 GLUS_FETCH_DELAY=0; GLUS_CANCEL_GRACE=1
 errors=0
-sleep() {{ :; }}
 get_versions() {{ :; }}
 change_versions() {{ skip_step 'No systemd change'; }}
 update_devel() {{ :; }}
@@ -55,7 +54,7 @@ class PersistentLogs(unittest.TestCase):
                     self.assertIn('success (exit 0)', summary)
 
     def test_success_failure_and_unique_command_logs(self):
-        for status in (0, 1):
+        for status in (0, 2):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 result = bash(runtime_setup(root) + f'''
@@ -173,10 +172,103 @@ exit "$ret"
                 self.assertIn('--jobs=2', line)
 
 
+class RetryControls(unittest.TestCase):
+    def simulate(self, status=1, attempts=3, succeed_at=99):
+        return bash(f'''
+errors=0; fetch=true; pretend=false; debug=false; fetch_attempts={attempts}; fetch_delay=4
+color_args=(); exclude_args=(); binary_args=(); pretend_args=(); emerge_opts_args=()
+find_emerge() {{ printf fake; }}
+calls=0
+command() {{
+    if [[ " $* " == *' -f '* ]]; then
+        ((++calls))
+        [ "$calls" -lt {succeed_at} ] && return {status}
+    fi
+    return 0
+}}
+sleep() {{ printf 'WAIT:%s\\n' "$1"; }}
+compile -u portage
+ret=$?
+printf 'calls=%s errors=%s\\n' "$calls" "$errors"
+exit "$ret"
+''')
+
+    def test_total_attempts_delay_and_final_failure(self):
+        result = self.simulate()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.count('WAIT:4'), 2)
+        self.assertIn('calls=3 errors=1', result.stdout)
+
+    def test_successful_retry_is_not_a_final_error(self):
+        result = self.simulate(succeed_at=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('WAIT:4'), 1)
+        self.assertIn('calls=2 errors=0', result.stdout)
+
+    def test_nonretryable_exit_codes_stop_immediately(self):
+        for status in (2, 126, 127, 130, 143):
+            result = self.simulate(status=status)
+            self.assertEqual(result.returncode, status)
+            self.assertNotIn('WAIT:', result.stdout)
+            self.assertIn('calls=1 errors=1', result.stdout)
+
+    def test_known_bad_arguments_are_not_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'command.log'
+            path.write_text('!!! invalid-name is not a valid package atom.\n')
+            result = bash(f'LAST_COMMAND_LOG={shlex.quote(str(path))}\nfetch_retryable 1\n')
+            self.assertEqual(result.returncode, 1)
+
+    def test_rejects_invalid_numbers_before_execution(self):
+        for option, value in (('--fetch-attempts', '0'), ('--fetch-delay', 'abc'),
+                              ('--cancel-grace', '999'), ('--log-retention-days', '01')):
+            result = plan(f'{option} {value}')
+            self.assertEqual(result.returncode, 2)
+            self.assertNotIn('Plan step:', result.stdout)
 
 
 
 
+class ProcessCancellation(unittest.TestCase):
+    def test_signal_stops_worker_and_grandchild_and_preserves_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            code = runtime_setup(root) + f'''
+fake_emerge() {{
+    sleep 60 &
+    child=$!
+    printf '%s' "$child" >{shlex.quote(str(root / 'child.pid'))}
+    wait "$child"
+}}
+main --no-sync --no-security --color false
+'''
+            proc = subprocess.Popen(['bash', '--noprofile', '--norc'], stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+            try:
+                proc.stdin.write(FUNCTIONS + '\n' + code)
+                proc.stdin.close()
+                proc.stdin = None
+                deadline = time.monotonic() + 5
+                while not (root / 'child.pid').exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue((root / 'child.pid').exists())
+                child = int((root / 'child.pid').read_text())
+                proc.send_signal(signal.SIGTERM)
+                stdout, stderr = proc.communicate(timeout=5)
+                self.assertEqual(proc.returncode, 143, stdout + stderr)
+                stat = Path(f'/proc/{child}/stat')
+                if stat.exists():
+                    self.assertEqual(stat.read_text().split()[2], 'Z')
+                run = next((root / 'logs').glob('run-*'))
+                summary = (run / 'summary.txt').read_text()
+                self.assertIn('interrupted (exit 143)', summary)
+                self.assertIn('Update portage', summary)
+                self.assertTrue(list(run.glob('command-*.log')))
+            finally:
+                if proc.poll() is None:
+                    proc.send_signal(signal.SIGTERM)
+                    proc.communicate(timeout=5)
 
 
 if __name__ == '__main__':

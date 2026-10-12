@@ -118,6 +118,28 @@ steps can depend on the current machine state; the basic-system fallback only
 executes when the initial system update fails. `--pretend` executes Portage
 checks and keeps logs, but sends no notifications.
 
+# Retry and cancellation controls
+
+| Option | Configuration | Default |
+| --- | --- | --- |
+| `--fetch-attempts` | `GLUS_FETCH_ATTEMPTS` | 3 total attempts |
+| `--fetch-delay` | `GLUS_FETCH_DELAY` | 300 seconds |
+| `--cancel-grace` | `GLUS_CANCEL_GRACE` | 10 seconds |
+
+Only the download phase is retried. Invocation errors (exit 2), missing or
+non-executable commands (126/127), signal exits and recognized invalid-argument
+diagnostics stop immediately. Portage uses exit 1 for several different causes,
+so unclassified exit-1 failures are retried up to the configured limit. Use
+`--fetch-attempts 1` to disable retries or `--fetch-delay 0` to retry immediately.
+
+Maintenance runs in a dedicated process group. On TERM, INT or HUP, Glus sends
+TERM to the group, waits up to the grace period, then kills remaining members.
+It preserves the logs and exits with 143, 130 or 129 respectively. Hooks should
+run in the foreground and must not detach into their own session if they need
+to participate in cancellation. The instance lock remains held during shutdown.
+Maintenance is unattended: the worker receives closed interactive input
+(`/dev/null`). Hooks and Portage options must not require terminal prompts.
+
 # Email summaries
 
 `GLUS_EMAIL` configures the destination. `GLUS_NOTIFY` / `--notify` accepts
