@@ -8,84 +8,34 @@
 # Repository: https://github.com/inode64/glus
 
 
-# TODO: Use different ways to send mail (https://linuxhint.com/bash_script_send_email)
-
-# Check if other instances of glus.sh are running.
-if ! command -v flock >/dev/null 2>&1; then
-	printf '%s\n' 'flock command not found' >&2
-	exit 1
-fi
-
-if [ -d /run/lock ] && [ -w /run/lock ]; then
-	LOCK_FILE='/run/lock/glus.lock'
-else
-	LOCK_FILE="${TMPDIR:-/tmp}/glus.lock"
-fi
-exec {LOCK_FD}>"${LOCK_FILE}" || {
-	printf 'Unable to open lock file: %s\n' "${LOCK_FILE}" >&2
-	exit 1
-}
-if ! flock -n "${LOCK_FD}"; then
-	printf 'Another instance of glus is already running (lock: %s)\n' "${LOCK_FILE}" >&2
-	# 75 = EX_TEMPFAIL (sysexits.h): the caller can retry later.
-	exit 75
-fi
-
 export LC_ALL='C'
 
-# Define system configuration file.
-if [ -z "${ETCDIR+x}" ]; then ETCDIR='/etc'; fi
-SYS_CONF_FILE="${ETCDIR?}/portage/glus.conf"
-
-declare -r ETCDIR
-declare -r LOCK_FILE
-declare -r SYS_CONF_FILE
-
-LOGS=$(mktemp -d)
-declare -r LOGS
-
+SYS_CONF_FILE="${ETCDIR-/etc}/portage/glus.conf"
 errors=0
 
-#######################################
-# Remove temporary files on exit.
-# Globals:
-#   None
-# Arguments:
-#   None
-# Outputs:
-#   None
-#######################################
+# Finalize exactly once, preserving failures and interrupted runs on disk.
 cleanup() {
 	local ret="${1:-$?}"
-	trap - EXIT TERM INT HUP
-	rm -rf "${LOGS}"
-	exit "${ret:?}"
+	trap '' TERM INT HUP
+	trap - EXIT
+	cancel_active_run
+	finalize_run "${ret}"
+	exit "${ret}"
 }
-{
-	trap cleanup EXIT || :
-	trap 'cleanup 143' TERM || :
-	trap 'cleanup 130' INT || :
-	trap 'cleanup 129' HUP || :
-} 2>/dev/null
 
-# Remove unnecessary files in /var/tmp/portage
+install_traps() {
+	trap cleanup EXIT
+	trap 'cleanup 143' TERM
+	trap 'cleanup 130' INT
+	trap 'cleanup 129' HUP
+}
+
+# Leave build-directory cleanup to Portage's own locking protocol.
 clean_portage_dir() {
-	local ret
-	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
-		return
-	fi
-
-	# Check if other instances of emerge are running before deleting temporary files
-	if pgrep -x emerge >/dev/null; then
-		return 0
-	else
-		ret=$?
-	fi
-	if [ "${ret}" -ne 1 ]; then
-		print_error "Unable to check for running emerge processes (exit ${ret}); skipping cleanup"
-		return "${ret}"
-	fi
-	rm -rf /var/tmp/portage/*
+	# A process check cannot protect against a build starting during rm.
+	# Portage owns build-directory locking and cleanup; never remove them globally.
+	STEP_SKIPPED='Build directories are managed by Portage'
+	print_info "${STEP_SKIPPED}"
 }
 
 Last_binutils() {
@@ -230,6 +180,15 @@ opt_parse() {
 			opt_arg_str "${@-}"
 			email="${optArg:?}"
 			shift "${optShift:?}"
+			;;
+		'--notify' | '--log-dir' | '--log-retention-days')
+			opt_arg_str "$@"
+			case "$1" in
+			--notify) notify_mode="${optArg}" ;;
+			--log-dir) log_dir="${optArg}" ;;
+			--log-retention-days) log_retention="${optArg}" ;;
+			esac
+			shift "${optShift}"
 			;;
 		'-v' | '--version') show_version ;;
 		'-h' | '--help') show_help ;;
@@ -379,6 +338,12 @@ show_help() {
 	     --email <email> \${GLUS_EMAIL}
 	        Send mail for alerts and notifications.
 	        (default: "${email?}")%NL
+	     --notify <failures|always|never>, \${GLUS_NOTIFY}
+	        Final email notification policy (default: ${notify_mode}).%NL
+	     --log-dir <absolute path>, \${GLUS_LOG_DIR}
+	        Persistent run logs (default: ${log_dir}).%NL
+	     --log-retention-days <days>, \${GLUS_LOG_RETENTION_DAYS}
+	        Keep completed runs for this many days; 0 keeps all (default: ${log_retention}).%NL
 	     -v, --version
 	        Show version number and quit.%NL
 	     -h, --help
@@ -586,6 +551,12 @@ validate_config() {
 	validate_choice GLUS_BINARY "${binary}" false true only auto autoonly || ret=1
 	validate_choice GLUS_COLOR "${color}" true false auto || ret=1
 	validate_email GLUS_EMAIL "${email}" || ret=1
+	validate_choice GLUS_NOTIFY "${notify_mode}" failures always never || ret=1
+	validate_integer GLUS_LOG_RETENTION_DAYS "${log_retention}" 0 36500 || ret=1
+	if [[ "${log_dir}" != /* ]] || [[ "${log_dir}" == *[$'\n\r\t']* ]]; then
+		print_error 'GLUS_LOG_DIR must be an absolute path without control whitespace'
+		ret=1
+	fi
 
 	validate_config_command GLUS_BEFORE_SYNC "${GLUS_BEFORE_SYNC-}" || ret=1
 	validate_config_command GLUS_AFTER_SYNC "${GLUS_AFTER_SYNC-}" || ret=1
@@ -593,6 +564,15 @@ validate_config() {
 	validate_config_command GLUS_AFTER_COMPILE "${GLUS_AFTER_COMPILE-}" || ret=1
 
 	return "${ret}"
+}
+
+validate_integer() {
+	local name="$1" value="$2" minimum="$3" maximum="$4"
+	if [[ "${value}" =~ ^(0|[1-9][0-9]{0,5})$ ]] && ((value >= minimum && value <= maximum)); then
+		return 0
+	fi
+	print_error "Invalid ${name}: expected an integer from ${minimum} to ${maximum}"
+	return 1
 }
 
 start_process() {
@@ -719,8 +699,10 @@ compile() {
 	return 0
 }
 
+
 command() {
-	local count_errors discard_output err run_in_pretend temp_file
+	local count_errors discard_output err run_in_pretend temp_file command_started
+	local -a pipeline_status
 
 	count_errors='true'
 	discard_output='false'
@@ -766,33 +748,37 @@ command() {
 		return 0
 	fi
 
-	temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
+	if ! temp_file=$(mktemp "${LOGS}/command-${CURRENT_STEP_ID:-standalone}-XXXXXX.log"); then
+		print_error 'Unable to create a command log; command was not executed'
+		return 1
+	fi
+	command_started=$SECONDS
+	printf 'Step: %s\nCommand: %s\nStatus: running\n' "${CURRENT_STEP_ID:-standalone}" "$(format_command "$@")" >"${temp_file}.meta" || return
 
-	if [ "${pretend}" = 'true' ]; then
-		"$@"
+	if [ "${discard_output}" = 'true' ] || [ "${quiet:?}" = 'true' ]; then
+		"$@" &>"${temp_file}"
 		err=$?
 	else
-		if [ "${discard_output}" = 'true' ] || [ "${quiet:?}" = 'true' ]; then
-			"$@" &>"${temp_file}"
-			err=$?
-		else
-			"$@" 2>&1 | tee "${temp_file}"
-			err=${PIPESTATUS[0]}
+		"$@" 2>&1 | tee "${temp_file}"
+		pipeline_status=("${PIPESTATUS[@]}")
+		err=${pipeline_status[0]}
+		if [ "${err}" -eq 0 ] && [ "${pipeline_status[1]}" -ne 0 ]; then
+			err=${pipeline_status[1]}
+			print_error 'Unable to save command output'
 		fi
 	fi
+	printf 'Exit: %s\nDuration: %ss\n' "${err}" "$((SECONDS - command_started))" >>"${temp_file}.meta"
+	printf '%s\t%s\t%s\t%s\t%s\n' "${err}" "${temp_file##*/}" "$((SECONDS - command_started))" "${CURRENT_STEP_ID:-standalone}" "$(format_command "$@")" >>"${LOGS}/commands.tsv"
 
 	if [ "${err}" -ne 0 ]; then
 		print_error "Command failed (exit ${err}): $(format_command "$@")"
-		if [ "${pretend}" != 'true' ] && { [ "${quiet:?}" = 'true' ] || [ "${discard_output}" = 'true' ]; }; then
+		if [ "${quiet:?}" = 'true' ] || [ "${discard_output}" = 'true' ]; then
 			if [ -f "${temp_file}" ]; then
 				tail -n1000 "${temp_file}" >&2
 			fi
 		fi
 		if [ "${count_errors}" = 'true' ]; then
 			((++errors))
-			if [ "${email}" ] && [ -f "${temp_file}" ]; then
-				tail -n1000 "${temp_file}" | mailx -s "Gentoo update error: $*" "${email}"
-			fi
 		fi
 	fi
 
@@ -810,6 +796,7 @@ add_step() {
 }
 
 skip_step() {
+	STEP_SKIPPED="$1"
 	print_info "Skipped: $1"
 }
 
@@ -911,18 +898,159 @@ rebuild_dependencies() {
 	command revdep-rebuild -i -v -- -v --fail-clean y "${emerge_args[@]}"
 }
 
+record_step() {
+	[ -n "${LOGS-}" ] || return 0
+	printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >>"${LOGS}/steps.tsv"
+}
+
 execute_plan() {
-	local i offset count ret
+	local i j offset count started duration ret status
 	local -a args
 	for ((i = 0; i < ${#PLAN_TITLES[@]}; i++)); do
 		offset="${PLAN_OFFSETS[i]}" count="${PLAN_COUNTS[i]}"
 		args=("${PLAN_ARGUMENTS[@]:offset:count}")
+		STEP_SKIPPED=''
+		CURRENT_STEP_ID="${i}"
+		started=$SECONDS
+		if [ -n "${LOGS-}" ]; then printf '%s\t%s\n' "${i}" "${started}" >"${LOGS}/active-step"; fi
 		start_process "${PLAN_TITLES[i]}"
 		"${PLAN_FUNCTIONS[i]}" "${args[@]}"
 		ret=$?
+		duration=$((SECONDS - started))
 		stop_process
-		[ "${ret}" -eq 0 ] || return "${ret}"
+		status=completed
+		[ -z "${STEP_SKIPPED}" ] || status=skipped
+		[ "${ret}" -eq 0 ] || status=failed
+		record_step "${i}" "${status}" "${ret}" "${duration}" "${PLAN_TITLES[i]}"
+		if [ -n "${LOGS-}" ]; then : >"${LOGS}/active-step"; fi
+		if [ "${ret}" -ne 0 ]; then
+			for ((j = i + 1; j < ${#PLAN_TITLES[@]}; j++)); do
+				record_step "${j}" skipped 0 0 "${PLAN_TITLES[j]} (previous step failed)"
+			done
+			return "${ret}"
+		fi
 	done
+	return 0
+}
+
+initialize_run() {
+	local old_umask
+	if ! builtin command -v flock >/dev/null; then
+		print_error 'flock is required'
+		return 1
+	fi
+	if [ -d /run/lock ] && [ -w /run/lock ]; then
+		LOCK_FILE=/run/lock/glus.lock
+	else
+		LOCK_FILE="${TMPDIR:-/tmp}/glus-${UID}.lock"
+	fi
+	LOCK_FILE="${GLUS_LOCK_FILE-${LOCK_FILE}}"
+	if [[ "${LOCK_FILE}" != /* ]] || [ -L "${LOCK_FILE}" ]; then
+		print_error 'Lock path must be absolute and must not be a symlink'
+		return 1
+	fi
+	exec {LOCK_FD}>>"${LOCK_FILE}" || return
+	if ! flock -n "${LOCK_FD}"; then
+		print_error "Another glus run holds ${LOCK_FILE}"
+		return 75
+	fi
+	old_umask=$(umask)
+	umask 077
+	if ! mkdir -p -- "${log_dir}" || ! LOGS=$(mktemp -d "${log_dir%/}/run-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX"); then
+		umask "${old_umask}"
+		print_error 'Unable to create the persistent run log directory'
+		return 1
+	fi
+	if ! { : >"${LOGS}/.glus-run" && : >"${LOGS}/steps.tsv" && : >"${LOGS}/commands.tsv"; }; then
+		umask "${old_umask}"
+		print_error 'Unable to initialize the run logs'
+		return 1
+	fi
+	umask "${old_umask}"
+	RUN_STARTED=$SECONDS
+	RUN_INITIALIZED=true
+	RUN_FINALIZED=false
+	install_traps
+	prune_run_logs
+	print_info "Run logs: ${LOGS}"
+}
+
+prune_run_logs() {
+	local candidate
+	[ "${log_retention}" -gt 0 ] || return 0
+	while IFS= read -r -d '' candidate; do
+		[ "${candidate}" != "${LOGS}" ] || continue
+		if [ -f "${candidate}/.glus-run" ] && [ -f "${candidate}/summary.txt" ] && [ ! -L "${candidate}" ]; then
+			rm -rf -- "${candidate}"
+		fi
+	done < <(find "${log_dir}" -mindepth 1 -maxdepth 1 -type d -name 'run-*' -mtime "+${log_retention}" -print0)
+}
+
+supervise_plan() {
+	local ret
+	execute_plan
+	ret=$?
+	finalize_run "${ret}"
+	return "${ret}"
+}
+
+cancel_active_run() {
+	return 0
+}
+
+finalize_run() {
+	local ret="$1" status=success duration index state code seconds title count=0
+	local active_index active_started active_duration=0
+	local completed=0 failed=0 skipped=0
+	[ "${RUN_INITIALIZED-false}" = true ] && [ "${RUN_FINALIZED-false}" != true ] || return 0
+	RUN_FINALIZED=true
+	[ "${ret}" -eq 0 ] || status=failed
+	case "${ret}" in 129 | 130 | 143) status=interrupted ;; esac
+	duration=$((SECONDS - RUN_STARTED))
+	if [ -s "${LOGS}/active-step" ]; then
+		IFS=$'\t' read -r active_index active_started <"${LOGS}/active-step"
+		if [[ "${active_index}" =~ ^[0-9]+$ && "${active_started}" =~ ^[0-9]+$ ]]; then active_duration=$((SECONDS - active_started)); fi
+	fi
+	# A killed worker cannot write its final step result. Complete the manifest here.
+	while IFS=$'\t' read -r index state code seconds title; do
+		((++count))
+		case "${state}" in completed) ((++completed)) ;; failed) ((++failed)) ;; skipped) ((++skipped)) ;; esac
+	done <"${LOGS}/steps.tsv"
+	for ((index = count; index < ${#PLAN_TITLES[@]}; index++)); do
+		if [ "${index}" -eq "${count}" ]; then
+			record_step "${index}" "${status}" "${ret}" "${active_duration}" "${PLAN_TITLES[index]}"
+			((++failed))
+		else
+			record_step "${index}" skipped 0 0 "${PLAN_TITLES[index]} (run stopped)"
+			((++skipped))
+		fi
+	done
+	{
+		printf 'GLUS on %s: %s (exit %s)\n' "$(hostname)" "${status}" "${ret}"
+		printf 'Duration: %ss\nCompleted: %s; failed/interrupted: %s; skipped: %s\n' "${duration}" "${completed}" "${failed}" "${skipped}"
+		printf 'Logs: %s\n' "${LOGS}"
+		while IFS=$'\t' read -r index state code seconds title; do
+			printf '  %s: %s (%ss, exit %s)\n' "${state}" "${title}" "${seconds}" "${code}"
+		done <"${LOGS}/steps.tsv"
+	} >"${LOGS}/summary.txt"
+	cat "${LOGS}/summary.txt"
+	notify_run "${ret}"
+	return 0
+}
+
+notify_run() {
+	local ret="$1"
+	[ "${dry_run-false}" != true ] && [ "${debug-false}" != true ] && [ "${pretend-false}" != true ] || return 0
+	[ "${notify_mode-failures}" != never ] || return 0
+	[ "${notify_mode-failures}" = always ] || [ "${ret}" -ne 0 ] || return 0
+	if [ -n "${email-}" ]; then
+		if ! mailx -s "GLUS result on $(hostname): exit ${ret}" "${email}" <"${LOGS}/summary.txt"; then
+			print_warn 'Email notification failed; update exit status is unchanged'
+			printf 'Email: failed\n' >>"${LOGS}/notifications.log"
+		else
+			printf 'Email: sent\n' >>"${LOGS}/notifications.log"
+		fi
+	fi
 	return 0
 }
 
@@ -1044,6 +1172,10 @@ main() {
 	# Recompile the entire system
 	full="false"
 
+	log_dir="${GLUS_LOG_DIR:-/var/log/glus}"
+	log_retention="${GLUS_LOG_RETENTION_DAYS-30}"
+	notify_mode="${GLUS_NOTIFY-failures}"
+
 	# Parse command line options.
 	opt_parse "$@"
 	# shellcheck disable=SC2086
@@ -1126,9 +1258,15 @@ main() {
 		;;
 	esac
 
-	get_versions
 	build_plan
-	execute_plan
+	if [ "${dry_run}" = true ] || [ "${debug}" = true ]; then
+		execute_plan
+		return
+	fi
+
+	initialize_run || return
+	get_versions
+	supervise_plan
 }
 
 main "$@"

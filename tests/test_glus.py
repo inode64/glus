@@ -8,7 +8,7 @@ import unittest
 
 
 SCRIPT = (Path(__file__).resolve().parents[1] / "glus.sh").read_text()
-FUNCTIONS, ENTRYPOINT = SCRIPT[SCRIPT.index("clean_portage_dir() {"):].rsplit("\nmain ", 1)
+FUNCTIONS, ENTRYPOINT = SCRIPT[SCRIPT.index("cleanup() {"):].rsplit("\nmain ", 1)
 
 
 def bash(code):
@@ -76,49 +76,38 @@ class PortageMaintenance(unittest.TestCase):
 
 
 class PortageCleanup(unittest.TestCase):
-    def test_only_missing_processes_allow_cleanup(self):
-        for status in (0, 1, 2, 3, 127):
-            with self.subTest(status=status):
-                result = bash(f'''
-fetch=false; pretend=false; debug=false
-pgrep() {{
-    if [ "$*" != '-x emerge' ]; then return 2; fi
-    return {status}
-}}
-rm() {{ printf 'DELETE'; }}
-clean_portage_dir
-''')
-                self.assertEqual(result.stdout, 'DELETE' if status == 1 else '')
-                self.assertEqual(result.returncode, 0 if status in (0, 1) else status)
-                if status > 1:
-                    self.assertIn('skipping cleanup', result.stderr)
-
-    def test_simulation_and_fetch_skip_cleanup(self):
+    def test_build_directories_are_never_removed_globally(self):
         for mode in ('fetch', 'pretend', 'debug'):
             result = bash(f'''
 fetch=false; pretend=false; debug=false; {mode}=true
-pgrep() {{ printf 'CHECK'; }}
-rm() {{ printf 'DELETE'; }}
+pgrep() {{ printf 'UNEXPECTED_CHECK'; }}
+rm() {{ printf 'UNEXPECTED_DELETE'; }}
 clean_portage_dir
 ''')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, '')
+            self.assertNotIn('UNEXPECTED', result.stdout)
+            self.assertIn('managed by Portage', result.stdout)
 
 
 class ExitHandling(unittest.TestCase):
-    def test_signals_and_normal_exit_preserve_status_and_remove_logs(self):
-        cleanup = SCRIPT[SCRIPT.index('cleanup() {'):SCRIPT.index('# Remove unnecessary files')]
+    def test_signals_preserve_status_and_logs(self):
         for command, expected in (
             ('kill -TERM $$', 143), ('kill -INT $$', 130), ('kill -HUP $$', 129),
             ('exit 0', 0), ('exit 7', 7),
         ):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
-                logs = Path(directory) / 'logs'
-                logs.mkdir()
+                logs = Path(directory)
                 (logs / 'command.log').write_text('test output')
-                result = bash(f"LOGS='{logs}'\n" + cleanup + '\n' + command + '\n')
+                (logs / 'steps.tsv').write_text('')
+                result = bash(f'''
+LOGS='{logs}'; RUN_INITIALIZED=true; RUN_STARTED=$SECONDS
+notify_mode=never; PLAN_TITLES=()
+install_traps
+{command}
+''')
                 self.assertEqual(result.returncode, expected, result.stderr)
-                self.assertFalse(logs.exists())
+                self.assertTrue((logs / 'command.log').exists())
+                self.assertIn(f'exit {expected}', (logs / 'summary.txt').read_text())
 
 
 class Hooks(unittest.TestCase):

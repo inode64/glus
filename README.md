@@ -50,17 +50,19 @@ Glus performs the update in a conservative order so that the package manager and
 the base build toolchain are refreshed before larger package updates are
 attempted:
 
-1. Load `/etc/portage/glus.conf`, validate command-line options and configured
-   hooks, and acquire a lock so only one Glus instance runs at a time.
+1. Load `/etc/portage/glus.conf`, validate options and hooks, and build the ordered
+   list of steps shared by planning and execution. Executing the plan acquires
+   an instance lock and creates a persistent run log directory.
 
 2. Sync Portage with `emaint -a sync`, unless synchronization is disabled.
 
 3. Run optional sync hooks configured with `GLUS_BEFORE_SYNC` and
    `GLUS_AFTER_SYNC`.
 
-4. Clean temporary Portage build files from `/var/tmp/portage` when it is safe
-   to do so, and automatically merge safe Portage configuration updates with
-   `etc-update --automode -5 /etc/portage`.
+4. Leave build-directory cleanup to Portage, which coordinates its own locks.
+   Glus no longer deletes `/var/tmp/portage/*`: checking for processes cannot
+   prevent a different build from starting during deletion. Automatically merge
+   Portage configuration updates with `etc-update --automode -5 /etc/portage`.
 
 5. Update Portage first.
 
@@ -85,9 +87,44 @@ attempted:
     `qcheck -B -P -v` to verify installed package file integrity.
 
 11. Optionally run `emerge --depclean`, clean old binary packages and distfiles
-    with `eclean`, run compile hooks, reload systemd when required, and send an
-    email with the last command output when a command fails.
+    with `eclean`, run compile hooks, reload systemd when required, and write a
+    final summary. Optionally send that summary by email.
 
+# Run logs and summaries
+
+Each execution creates a private directory under `/var/log/glus`, named
+`run-<UTC timestamp>-<unique suffix>`. Override the parent directory with
+`GLUS_LOG_DIR` or `--log-dir /absolute/path`. Failure to create logs stops the
+run before maintenance begins.
+
+* `summary.txt`: final status, exit code, total duration and each step's result.
+* `steps.tsv`: step index, result, exit code, seconds and title. Remaining steps
+  are marked skipped if a previous step fails or the run is interrupted.
+* `command-<step>-*.log`: unique output file for each command, including retries.
+  The accompanying `.meta` file records the command, duration and exit status;
+  an interrupted command may retain `Status: running` without an exit entry.
+* `commands.tsv`: exit code, log filename, seconds, step index and quoted command.
+* `retries.log` and `notifications.log`: retry decisions and delivery results,
+  when applicable.
+
+Logs survive both failure and interruption. The summary is printed even with
+`--quiet`. `GLUS_LOG_RETENTION_DAYS` / `--log-retention-days` defaults to 30;
+0 keeps all runs. Expiration only removes old, completed, marked Glus run
+directories. Unfinished runs and unrelated directories are retained.
+
+`--plan` and `--debug` use the same ordered steps but do not acquire a lock,
+create run logs, run maintenance commands or send notifications. Conditional
+steps can depend on the current machine state; the basic-system fallback only
+executes when the initial system update fails. `--pretend` executes Portage
+checks and keeps logs, but sends no notifications.
+
+# Email summaries
+
+`GLUS_EMAIL` configures the destination. `GLUS_NOTIFY` / `--notify` accepts
+`failures` (default), `always`, or `never`. One final summary is sent after an
+execution, instead of a message per command failure. No email is sent during
+`--plan`, `--debug`, or `--pretend`. Delivery failure preserves the update's
+exit status and is recorded in `notifications.log`.
 
 # Prerequisites
 
@@ -272,11 +309,3 @@ glus.sh --plan
 ```
 glus.sh --qcheck
 ```
-
-# Shared execution plan
-
-Glus builds an ordered list of steps used by both `--plan` and execution.
-Conditional checks use the machine state when the step is reached. The basic
-system fallback runs only if the initial system update fails. Emerge, Perl
-cleanup and reverse-dependency rebuilds share the same option builder for
-binary mode, exclusions, extra emerge options and pretend mode.
