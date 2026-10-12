@@ -158,6 +158,27 @@ finalize_run 0
 
 
 class SharedPlan(unittest.TestCase):
+    def test_targeted_run_only_executes_selected_package_and_records_status(self):
+        for status in (0, 2):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = bash(runtime_setup(root) + f'''
+update_devel() {{ echo UNEXPECTED_TOOLCHAIN; return 42; }}
+emaint() {{ echo UNEXPECTED_MAINTENANCE; return 42; }}
+rebuild_perl() {{ echo UNEXPECTED_PERL; return 42; }}
+MOCK_EXIT={status}
+main --packages-only dev-lang/rust-bin --clean --color false
+''')
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertNotIn('UNEXPECTED', result.stdout + result.stderr)
+                run = next((root / 'logs').glob('run-*'))
+                steps = (run / 'steps.tsv').read_text().splitlines()
+                self.assertEqual(len(steps), 1)
+                self.assertEqual(steps[0].split('\t')[1], 'failed' if status else 'completed')
+                commands = (run / 'commands.tsv').read_text().splitlines()
+                self.assertEqual(len(commands), 1 if status else 2)
+                self.assertTrue(all('dev-lang/rust-bin' in line for line in commands))
+
     def test_system_fallback_only_runs_after_failure(self):
         for status in (0, 1):
             result = bash(f'''

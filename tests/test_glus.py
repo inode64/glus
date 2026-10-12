@@ -31,6 +31,31 @@ find_emerge() { printf /fake/emerge; }
 
 
 class PackageSets(unittest.TestCase):
+    def test_packages_only_plan_excludes_general_maintenance(self):
+        result = plan('--packages-only dev-lang/rust-bin', setup='''
+GLUS_CLEAN=true; GLUS_LIVE=true; GLUS_GO=true; GLUS_MODULES=true
+GLUS_BEFORE_SYNC=true; GLUS_AFTER_COMPILE=true
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        steps = [line for line in result.stdout.splitlines() if 'Plan step:' in line]
+        self.assertEqual(steps, ['[INFO] Plan step: Update selected packages: dev-lang/rust-bin'])
+        commands = [shlex.split(line.split('Plan command: ', 1)[1])
+                    for line in result.stdout.splitlines() if 'Plan command:' in line]
+        self.assertEqual(len(commands), 2)
+        for command in commands:
+            self.assertEqual(command[0], '/fake/emerge')
+            self.assertEqual(command[-3:], ['-u', '--', 'dev-lang/rust-bin'])
+
+    def test_packages_only_rejects_empty_targets_and_conflicting_modes(self):
+        for options in ("--packages-only ''", "--packages-only '  '",
+                        '--packages-only dev-lang/rust-bin --system',
+                        '--packages-only dev-lang/rust-bin --world',
+                        '--packages-only dev-lang/rust-bin --full'):
+            with self.subTest(options=options):
+                result = plan(options)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn('Plan command:', result.stdout)
+
     def test_empty_selection_skips_sets_and_keeps_maintenance(self):
         result = plan('--no-security')
         self.assertEqual(result.returncode, 0, result.stderr)

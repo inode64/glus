@@ -112,9 +112,10 @@ opt_parse() {
 			exclude="${optArg:?}"
 			shift "${optShift:?}"
 			;;
-		'-p' | '--packages')
+		'-p' | '--packages' | '--packages-only')
 			opt_arg_str "${@-}"
-			packages="${optArg:?}"
+			packages="${optArg}"
+			[ "$1" != --packages-only ] || packages_only=true
 			shift "${optShift:?}"
 			;;
 		'-P' | '--pretend' | '--no-pretend')
@@ -317,6 +318,9 @@ show_help() {
 	     -p --packages <PACKAGES>, \${GLUS_PACKAGES}
 	        Add this packages for update.
 	        (default: "${packages}")%NL
+	     --packages-only <PACKAGES>
+	        Update only these packages and their required dependencies.
+	        Skip sync, toolchain changes, hooks and general maintenance.%NL
 	     -g --[no-]go, \${GLUS_GO}
 	        Add go lang packages for update.
 	        (default: ${go?})%NL
@@ -573,6 +577,16 @@ validate_config() {
 	validate_bool system "${system}" || ret=1
 	validate_bool world "${world}" || ret=1
 	validate_bool full "${full}" || ret=1
+	if [ "${packages_only-false}" = true ]; then
+		if [[ ! "${packages}" =~ [^[:space:]] ]]; then
+			print_error '--packages-only requires at least one package'
+			ret=1
+		fi
+		if [ "${system}" = true ] || [ "${world}" = true ] || [ "${full}" = true ]; then
+			print_error '--packages-only cannot be combined with --system, --world or --full'
+			ret=1
+		fi
+	fi
 
 	validate_choice GLUS_BINARY "${binary}" false true only auto autoonly || ret=1
 	validate_choice GLUS_COLOR "${color}" true false auto || ret=1
@@ -689,8 +703,10 @@ compile() {
 		shift
 	fi
 
-	# Update binutils, gcc
-	command --discard-output "${command_flags[@]}" update_devel || return
+	# A targeted run uses the current toolchain without changing global settings.
+	if [ "${packages_only-false}" != true ]; then
+		command --discard-output "${command_flags[@]}" update_devel || return
+	fi
 
 	if ! emerge=$(find_emerge); then
 		if [ "${count_errors}" = 'true' ]; then
@@ -733,11 +749,11 @@ compile() {
 		# Compile
 		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${emerge_args[@]}" "$@" || return
 
-		# Update broken merges
-		command --pretend-safe "${command_flags[@]}" emaint "${emaint_args[@]}" --yes merges || return
-
-		# Update binutils, gcc
-		command --discard-output "${command_flags[@]}" update_devel || return
+		if [ "${packages_only-false}" != true ]; then
+			# Update broken merges and refresh the toolchain after a full run.
+			command --pretend-safe "${command_flags[@]}" emaint "${emaint_args[@]}" --yes merges || return
+			command --discard-output "${command_flags[@]}" update_devel || return
+		fi
 	fi
 
 	return 0
@@ -859,6 +875,10 @@ skip_step() {
 
 build_plan() {
 	PLAN_TITLES=() PLAN_FUNCTIONS=() PLAN_OFFSETS=() PLAN_COUNTS=() PLAN_ARGUMENTS=()
+	if [ "${packages_only-false}" = true ]; then
+		add_step "Update selected packages: ${packages}" compile -u -- "${package_args[@]}"
+		return
+	fi
 	local -a sets=("${package_args[@]}")
 	if [ "${sync}" = true ] && [ "${pretend}" != true ]; then
 		[ -z "${GLUS_BEFORE_SYNC-}" ] || add_step 'Before sync hook' run_config_command "${GLUS_BEFORE_SYNC}"
@@ -1265,6 +1285,7 @@ main() {
 
 	# Add this packages for update
 	packages="${GLUS_PACKAGES-""}"
+	packages_only=false
 
 	# Compile security relevant packages
 	security="${GLUS_SECURITY-"true"}"

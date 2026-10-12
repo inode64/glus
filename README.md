@@ -190,6 +190,14 @@ glus.sh --world --fetch-attempts 2 --fetch-delay 60 --notify always
 glus.sh --security --no-slack
 ```
 
+For a targeted update, use `glus.sh --packages-only dev-lang/rust-bin`.
+This mode only fetches and updates the selected packages and any dependencies
+Portage requires. It skips synchronization, the automatic Portage update,
+toolchain selection, hooks, Perl maintenance, rebuilds and cleanup, even when
+those are enabled in the configuration. Locks, retries, logs and notifications
+remain active. Preview the exact scope with `--plan` or `--pretend`.
+It cannot be combined with `--system`, `--world` or `--full`.
+
 
 # Prerequisites
 
