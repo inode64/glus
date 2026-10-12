@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 
@@ -143,6 +144,55 @@ compile -u portage
         for command in commands:
             self.assertIn('--jobs=2', command)
             self.assertIn('--load-average=4', command)
+
+
+class ErrorOutput(unittest.TestCase):
+    def run_command(self, exit_code=7, flags='', quiet='true', pretend='false'):
+        with tempfile.TemporaryDirectory(prefix='glus-test-') as logs:
+            return bash(f'''
+LOGS='{logs}'; quiet={quiet}; pretend={pretend}; debug=false; email=''; errors=0
+if [ "$quiet" = true ]; then NO_STDOUT=true; fi
+command {flags} bash -c 'echo diagnostic-output; echo diagnostic-error >&2; exit {exit_code}'
+ret=$?
+printf 'errors=%s\\n' "$errors"
+exit "$ret"
+''')
+
+    def test_quiet_failure_preserves_status_and_diagnostics(self):
+        result = self.run_command()
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(result.stdout, 'errors=1\n')
+        self.assertIn('[ERROR] Command failed (exit 7):', result.stderr)
+        self.assertIn('diagnostic-output\n', result.stderr)
+        self.assertIn('diagnostic-error\n', result.stderr)
+
+    def test_quiet_success_remains_silent(self):
+        result = self.run_command(exit_code=0)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, 'errors=0\n')
+        self.assertEqual(result.stderr, '')
+
+    def test_discarded_output_is_recovered_on_failure(self):
+        result = self.run_command(flags='--discard-output', quiet='false')
+        self.assertEqual(result.returncode, 7)
+        self.assertIn('diagnostic-error\n', result.stderr)
+
+    def test_retry_failure_does_not_increment_final_error_count(self):
+        result = self.run_command(flags='--no-error-count')
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(result.stdout, 'errors=0\n')
+        self.assertIn('diagnostic-error\n', result.stderr)
+
+    def test_pretend_preserves_error_output(self):
+        result = self.run_command(flags='--pretend-safe', pretend='true')
+        self.assertEqual(result.returncode, 7)
+        self.assertIn('diagnostic-error\n', result.stderr)
+
+    def test_verbose_failure_does_not_duplicate_output(self):
+        result = self.run_command(quiet='false')
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(result.stdout.count('diagnostic-error\n'), 1)
+        self.assertNotIn('diagnostic-error\n', result.stderr)
 
 
 if __name__ == "__main__":

@@ -771,13 +771,10 @@ command() {
 	temp_file=${LOGS}/$(date +%Y-%m-%d-%H-%M-%S).log
 
 	if [ "${pretend}" = 'true' ]; then
-		"$@" 2>/dev/null
+		"$@"
 		err=$?
 	else
-		if [ "${discard_output}" = 'true' ]; then
-			"$@" &>/dev/null
-			err=$?
-		elif [ "${quiet:?}" = 'true' ]; then
+		if [ "${discard_output}" = 'true' ] || [ "${quiet:?}" = 'true' ]; then
 			"$@" &>"${temp_file}"
 			err=$?
 		else
@@ -787,6 +784,12 @@ command() {
 	fi
 
 	if [ "${err}" -ne 0 ]; then
+		print_error "Command failed (exit ${err}): $(format_command "$@")"
+		if [ "${pretend}" != 'true' ] && { [ "${quiet:?}" = 'true' ] || [ "${discard_output}" = 'true' ]; }; then
+			if [ -f "${temp_file}" ]; then
+				tail -n1000 "${temp_file}" >&2
+			fi
+		fi
 		if [ "${count_errors}" = 'true' ]; then
 			((++errors))
 			if [ "${email}" ] && [ -f "${temp_file}" ]; then
