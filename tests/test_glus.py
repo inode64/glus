@@ -58,5 +58,30 @@ run_config_command 'printf "two words" '\''single quoted'\'' escaped\ space "" l
         self.assertEqual(result.stdout.count('HOOK_EXECUTED'), 1)
 
 
+class Arguments(unittest.TestCase):
+    def test_entrypoint_preserves_zero_arguments(self):
+        result = bash('main() { printf "%s" "$#"; }\nmain ' + ENTRYPOINT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '0')
+
+    def test_defaults_reach_validation(self):
+        result = bash('''
+SYS_CONF_FILE=/dev/null
+validate_config() { printf '%s %s' "$sync" "$security"; return 77; }
+main
+''')
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stdout, 'true true')
+
+    def test_package_argument_keeps_spaces(self):
+        result = bash('''
+SYS_CONF_FILE=/dev/null
+validate_config() { printf '%s' "$packages"; return 77; }
+main --packages 'app-one/pkg app-two/pkg'
+''')
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stdout, 'app-one/pkg app-two/pkg')
+
+
 if __name__ == "__main__":
     unittest.main()

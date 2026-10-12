@@ -913,7 +913,7 @@ main() {
 	full="false"
 
 	# Parse command line options.
-	opt_parse "${@-}"
+	opt_parse "$@"
 	# shellcheck disable=SC2086
 	set -- ${posArgs-}
 
@@ -1117,4 +1117,4 @@ main() {
 	fi
 }
 
-main "${@-}"
+main "$@"
