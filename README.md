@@ -116,9 +116,14 @@ run before maintenance begins.
 * `command-<step>-*.log`: unique output file for each command, including retries.
   The accompanying `.meta` file records the command, duration and exit status;
   an interrupted command may retain `Status: running` without an exit entry.
-* `commands.tsv`: exit code, log filename, seconds, step index and quoted command.
+* `commands.tsv`: exit code, log filename, seconds, step index, quoted command
+  and short command label.
 * `retries.log` and `notifications.log`: retry decisions and delivery results,
   when applicable.
+
+Use `--quiet` (or `GLUS_QUIET=true`) when wrapping Glus with runitor: the final
+summary includes each command's name, duration and exit code, while full command
+output stays in the local logs. Failures show only the last 20 output lines.
 
 Logs survive both failure and interruption. The summary is printed even with
 `--quiet`. `GLUS_LOG_RETENTION_DAYS` / `--log-retention-days` defaults to 30;

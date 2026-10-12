@@ -417,6 +417,22 @@ format_command() {
 	printf '%q ' "$@"
 }
 
+command_label() {
+	local executable="$1" arg
+	shift
+	if [ "${executable##*/}" = env ]; then
+		while [ "$#" -gt 0 ] && [[ "$1" == *=* ]]; do shift; done
+		executable="${1:-env}"
+		[ "$#" -eq 0 ] || shift
+	fi
+	printf '%s' "${executable##*/}"
+	if [[ "${executable##*/}" = *emerge ]]; then
+		for arg in "$@"; do
+			case "${arg}" in -f | --fetchonly) printf ' (fetch)'; break ;; esac
+		done
+	fi
+}
+
 run_config_command() {
 	local config_command
 	local -a command_args
@@ -841,13 +857,13 @@ command() {
 		fi
 	fi
 	printf 'Exit: %s\nDuration: %ss\n' "${err}" "$((SECONDS - command_started))" >>"${temp_file}.meta"
-	printf '%s\t%s\t%s\t%s\t%s\n' "${err}" "${temp_file##*/}" "$((SECONDS - command_started))" "${CURRENT_STEP_ID:-standalone}" "$(format_command "$@")" >>"${LOGS}/commands.tsv"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${err}" "${temp_file##*/}" "$((SECONDS - command_started))" "${CURRENT_STEP_ID:-standalone}" "$(format_command "$@")" "$(command_label "$@")" >>"${LOGS}/commands.tsv"
 
 	if [ "${err}" -ne 0 ]; then
 		print_error "Command failed (exit ${err}): $(format_command "$@")"
 		if [ "${quiet:?}" = 'true' ] || [ "${discard_output}" = 'true' ]; then
 			if [ -f "${temp_file}" ]; then
-				tail -n1000 "${temp_file}" >&2
+				tail -n20 "${temp_file}" >&2
 			fi
 		fi
 		if [ "${count_errors}" = 'true' ]; then
@@ -1115,6 +1131,7 @@ cancel_active_run() {
 
 finalize_run() {
 	local ret="$1" status=success duration index state code seconds title count=0
+	local _command_log label
 	local active_index active_started active_duration=0
 	local completed=0 failed=0 skipped=0
 	[ "${RUN_INITIALIZED-false}" = true ] && [ "${RUN_FINALIZED-false}" != true ] || return 0
@@ -1147,6 +1164,12 @@ finalize_run() {
 		while IFS=$'\t' read -r index state code seconds title; do
 			printf '  %s: %s (%ss, exit %s)\n' "${state}" "${title}" "${seconds}" "${code}"
 		done <"${LOGS}/steps.tsv"
+		if [ -s "${LOGS}/commands.tsv" ]; then
+			printf 'Commands:\n'
+			while IFS=$'\t' read -r code _command_log seconds index title label; do
+				printf '  %s: %ss, exit %s\n' "${label:-${title}}" "${seconds}" "${code}"
+			done <"${LOGS}/commands.tsv"
+		fi
 	} >"${LOGS}/summary.txt"
 	cat "${LOGS}/summary.txt"
 	notify_run "${ret}"

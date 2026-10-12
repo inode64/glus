@@ -525,6 +525,19 @@ printf '%s' "$GLUS_TEST_COMPILER"
 
 
 class ErrorOutput(unittest.TestCase):
+    def test_quiet_error_prints_only_last_twenty_lines_and_keeps_full_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = bash(f'''
+LOGS={shlex.quote(directory)}; quiet=true; NO_STDOUT=true
+pretend=false; debug=false; errors=0
+command bash -c 'for ((i=1; i<=50; i++)); do printf "diagnostic-%s\\n" "$i"; done; exit 42'
+''')
+            self.assertEqual(result.returncode, 42, result.stderr)
+            lines = [line for line in result.stderr.splitlines() if line.startswith('diagnostic-')]
+            self.assertEqual(lines, [f'diagnostic-{i}' for i in range(31, 51)])
+            log = next(Path(directory).glob('command-*.log')).read_text().splitlines()
+            self.assertEqual(log, [f'diagnostic-{i}' for i in range(1, 51)])
+
     def run_command(self, exit_code=7, flags='', quiet='true', pretend='false'):
         with tempfile.TemporaryDirectory(prefix='glus-test-') as logs:
             return bash(f'''

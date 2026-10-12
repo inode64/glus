@@ -158,6 +158,21 @@ finalize_run 0
 
 
 class SharedPlan(unittest.TestCase):
+    def test_quiet_summary_has_command_times_without_streaming_build_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = bash(runtime_setup(root) + '''
+main --packages-only sys-libs/readline --color false --quiet
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('Fake emerge:', result.stdout)
+            self.assertIn('Update selected packages: sys-libs/readline', result.stdout)
+            self.assertRegex(result.stdout, r'fake_emerge \(fetch\): \d+s, exit 0')
+            self.assertRegex(result.stdout, r'fake_emerge: \d+s, exit 0')
+            run = next((root / 'logs').glob('run-*'))
+            self.assertTrue(any('Fake emerge:' in p.read_text() for p in run.glob('command-*.log')))
+            self.assertEqual(result.stdout, (run / 'summary.txt').read_text())
+
     def test_targeted_run_only_executes_selected_package_and_records_status(self):
         for status in (0, 2):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
