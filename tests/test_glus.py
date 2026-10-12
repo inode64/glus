@@ -224,8 +224,26 @@ class CompileOptions(unittest.TestCase):
         self.assertIn('-p', args)
         self.assertIn('--jobs=2', args)
         self.assertIn('--load-average=4', args)
-        self.assertEqual(args[args.index('--exclude') + 1], 'sys-devel/* app-test/pkg')
+        self.assertIn('--exclude=sys-devel/*', args)
+        self.assertIn('--exclude=app-test/pkg', args)
         self.assertEqual(args[args.index('--color') + 1], 'n')
+
+    def test_exclusions_survive_rebuilder_option_splitting(self):
+        result = plan("--exclude 'sys-kernel/gentoo* sys-kernel/bliss-kernel-bin'")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for tool in ('perl-cleaner', 'revdep-rebuild'):
+            line = next(line for line in result.stdout.splitlines()
+                        if 'Plan command:' in line and tool in line)
+            args = shlex.split(line.split('Plan command: ', 1)[1])
+            options = args[args.index('--') + 1:]
+            # Reproduce the unquoted option expansion used by perl-cleaner.
+            split = subprocess.run(
+                ['bash', '-c', 'options="$*"; printf "%s\\n" $options', '_', *options],
+                text=True, capture_output=True, check=True,
+            ).stdout.splitlines()
+            self.assertIn('--exclude=sys-kernel/gentoo*', split)
+            self.assertIn('--exclude=sys-kernel/bliss-kernel-bin', split)
+            self.assertNotIn('sys-kernel/bliss-kernel-bin', split)
 
     def compile_commands(self, binary='', options='', fetch='false'):
         result = bash(f'''

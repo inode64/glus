@@ -1315,10 +1315,16 @@ main() {
 		emaint_args=(--fix)
 	fi
 
+	# Rebuilders such as perl-cleaner flatten and split their emerge options.
+	# Keep each exclusion in one argument so no atom becomes a merge target.
+	local excluded_atom
+	local -a excluded_atoms=()
+	exclude_args=()
 	if [ "${exclude}" ]; then
-		exclude_args=(--exclude "${exclude}")
-	else
-		exclude_args=()
+		read -r -a excluded_atoms <<<"${exclude}"
+		for excluded_atom in "${excluded_atoms[@]}"; do
+			exclude_args+=("--exclude=${excluded_atom}")
+		done
 	fi
 
 	if [ "${packages}" ]; then
