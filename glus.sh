@@ -1092,7 +1092,7 @@ main() {
 			command --pretend-safe emerge --depclean "${pretend_args[@]}" "${exclude_args[@]}" || return
 		fi
 
-		run_process "Rebuild preserved packages" command --pretend-safe emerge "${pretend_args[@]}" @preserved-rebuild || return
+		run_process "Rebuild preserved packages" command --pretend-safe emerge "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" @preserved-rebuild || return
 
 		if [ "${pretend}" != 'true' ]; then
 			# Recompile all perl packages

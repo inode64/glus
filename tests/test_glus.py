@@ -1,6 +1,7 @@
 """Exercise Bash functions with isolated state and simulated maintenance commands."""
 
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -188,6 +189,21 @@ etc_update_portage
 
 
 class CompileOptions(unittest.TestCase):
+    def test_preserved_rebuild_honors_selected_options(self):
+        result = plan(
+            "--binary only --exclude 'sys-devel/* app-test/pkg' --pretend",
+            setup="EMERGE_OPTS='--jobs=2 --load-average=4'",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line = next(line for line in result.stdout.splitlines() if '@preserved-rebuild' in line)
+        args = shlex.split(line.split('Plan command: ', 1)[1])
+        self.assertIn('-K', args)
+        self.assertIn('-p', args)
+        self.assertIn('--jobs=2', args)
+        self.assertIn('--load-average=4', args)
+        self.assertEqual(args[args.index('--exclude') + 1], 'sys-devel/* app-test/pkg')
+        self.assertEqual(args[args.index('--color') + 1], 'n')
+
     def compile_commands(self, binary='', options='', fetch='false'):
         result = bash(f'''
 fetch={fetch}; pretend=false; debug=false; errors=0
