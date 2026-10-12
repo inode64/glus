@@ -105,6 +105,22 @@ clean_portage_dir
             self.assertEqual(result.stdout, '')
 
 
+class ExitHandling(unittest.TestCase):
+    def test_signals_and_normal_exit_preserve_status_and_remove_logs(self):
+        cleanup = SCRIPT[SCRIPT.index('cleanup() {'):SCRIPT.index('# Remove unnecessary files')]
+        for command, expected in (
+            ('kill -TERM $$', 143), ('kill -INT $$', 130), ('kill -HUP $$', 129),
+            ('exit 0', 0), ('exit 7', 7),
+        ):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                logs = Path(directory) / 'logs'
+                logs.mkdir()
+                (logs / 'command.log').write_text('test output')
+                result = bash(f"LOGS='{logs}'\n" + cleanup + '\n' + command + '\n')
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertFalse(logs.exists())
+
+
 class Hooks(unittest.TestCase):
     def test_rejects_code_in_validation_and_execution(self):
         for payload in (

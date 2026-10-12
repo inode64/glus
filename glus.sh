@@ -56,16 +56,16 @@ errors=0
 #   None
 #######################################
 cleanup() {
-	local ret="$?"
+	local ret="${1:-$?}"
+	trap - EXIT TERM INT HUP
 	rm -rf "${LOGS}"
-	trap - EXIT
 	exit "${ret:?}"
 }
 {
 	trap cleanup EXIT || :
-	trap cleanup TERM || :
-	trap cleanup INT || :
-	trap cleanup HUP || :
+	trap 'cleanup 143' TERM || :
+	trap 'cleanup 130' INT || :
+	trap 'cleanup 129' HUP || :
 } 2>/dev/null
 
 # Remove unnecessary files in /var/tmp/portage
