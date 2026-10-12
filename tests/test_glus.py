@@ -57,6 +57,24 @@ class PackageSets(unittest.TestCase):
         self.assertNotIn('Update sets', result.stdout)
 
 
+class PortageMaintenance(unittest.TestCase):
+    def test_repairs_are_enabled_only_outside_pretend(self):
+        for options, action in (('', '--fix'), ('--pretend', '--check')):
+            result = plan(options)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            commands = [shlex.split(line.split('Plan command: ', 1)[1])
+                        for line in result.stdout.splitlines()
+                        if 'Plan command: emaint ' in line and not line.rstrip().endswith('sync')]
+            self.assertTrue(any(args[-1] == 'merges' for args in commands))
+            self.assertTrue(any(args[-1] == 'world' for args in commands))
+            for args in commands:
+                self.assertIn(action, args)
+                self.assertNotIn('-p', args)
+                self.assertNotIn('--fix' if action == '--check' else '--check', args)
+                if args[-1] == 'merges':
+                    self.assertIn('--yes', args)
+
+
 class PortageCleanup(unittest.TestCase):
     def test_only_missing_processes_allow_cleanup(self):
         for status in (0, 1, 2, 3, 127):

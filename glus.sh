@@ -720,7 +720,7 @@ compile() {
 		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" "$@" || return
 
 		# Update broken merges
-		command --pretend-safe "${command_flags[@]}" emaint "${pretend_args[@]}" merges || return
+		command --pretend-safe "${command_flags[@]}" emaint "${emaint_args[@]}" --yes merges || return
 
 		# Update binutils, gcc
 		command --discard-output "${command_flags[@]}" update_devel || return
@@ -842,7 +842,7 @@ change_versions() {
 }
 
 main() {
-	local -a binary_args color_args emerge_opts_args exclude_args package_args pretend_args sets
+	local -a binary_args color_args emaint_args emerge_opts_args exclude_args package_args pretend_args sets
 
 	if [ -f "${SYS_CONF_FILE}" ]; then
 		set -a
@@ -963,8 +963,10 @@ main() {
 	# Build the pretend flag array used by emerge-family commands.
 	if [ "${pretend:?}" = 'true' ]; then
 		pretend_args=(-p)
+		emaint_args=(--check)
 	else
 		pretend_args=()
+		emaint_args=(--fix)
 	fi
 
 	if [ "${exclude}" ]; then
@@ -1115,7 +1117,7 @@ main() {
 		fi
 
 		# Check and fix problems in the world file
-		command --pretend-safe emaint "${pretend_args[@]}" world || return
+		command --pretend-safe emaint "${emaint_args[@]}" world || return
 
 		if [ "${clean:?}" = 'true' ]; then
 			if [ "${#binary_args[@]}" -gt 0 ]; then
