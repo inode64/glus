@@ -126,9 +126,12 @@ summary includes each command's name, duration and exit code, while full command
 output stays in the local logs. Failures show only the last 20 output lines.
 
 Logs survive both failure and interruption. The summary is printed even with
-`--quiet`. `GLUS_LOG_RETENTION_DAYS` / `--log-retention-days` defaults to 30;
-0 keeps all runs. Expiration only removes old, completed, marked Glus run
-directories. Unfinished runs and unrelated directories are retained.
+`--quiet`. `GLUS_LOG_ROTATIONS` / `--log-rotations` defaults to **10 runs**,
+including the current one; 0 disables the count limit. The oldest completed,
+marked Glus run directories are removed first. Unfinished runs, symlinks and
+unrelated directories are retained and do not count towards the limit.
+`GLUS_LOG_RETENTION_DAYS` / `--log-retention-days` optionally expires runs by
+age as well; it defaults to 0 (disabled). Set both limits to 0 to keep all runs.
 
 `--plan` and `--debug` use the same ordered steps but do not acquire a lock,
 create run logs, run maintenance commands or send notifications. Conditional

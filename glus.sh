@@ -195,12 +195,13 @@ opt_parse() {
 			email="${optArg:?}"
 			shift "${optShift:?}"
 			;;
-		'--slack-webhook' | '--notify' | '--log-dir' | '--log-retention-days' | '--fetch-attempts' | '--fetch-delay' | '--cancel-grace')
+		'--slack-webhook' | '--notify' | '--log-dir' | '--log-rotations' | '--log-retention-days' | '--fetch-attempts' | '--fetch-delay' | '--cancel-grace')
 			opt_arg_str "$@"
 			case "$1" in
 			--slack-webhook) slack_webhook="${optArg}" ;;
 			--notify) notify_mode="${optArg}" ;;
 			--log-dir) log_dir="${optArg}" ;;
+			--log-rotations) log_rotations="${optArg}" ;;
 			--log-retention-days) log_retention="${optArg}" ;;
 			--fetch-attempts) fetch_attempts="${optArg}" ;;
 			--fetch-delay) fetch_delay="${optArg}" ;;
@@ -367,7 +368,9 @@ show_help() {
 	     --log-dir <absolute path>, \${GLUS_LOG_DIR}
 	        Persistent run logs (default: ${log_dir}).%NL
 	     --log-retention-days <days>, \${GLUS_LOG_RETENTION_DAYS}
-	        Keep completed runs for this many days; 0 keeps all (default: ${log_retention}).%NL
+	        Also expire completed runs by age; 0 disables age expiration (default: ${log_retention}).%NL
+	     --log-rotations <count>, \${GLUS_LOG_ROTATIONS}
+	        Keep this many runs, including the current run; 0 disables the limit (default: ${log_rotations}).%NL
 	     --fetch-attempts <count>, \${GLUS_FETCH_ATTEMPTS}
 	        Total fetch attempts (default: ${fetch_attempts}).%NL
 	     --fetch-delay <seconds>, \${GLUS_FETCH_DELAY}
@@ -609,6 +612,7 @@ validate_config() {
 	validate_email GLUS_EMAIL "${email}" || ret=1
 	validate_choice GLUS_NOTIFY "${notify_mode}" failures always never || ret=1
 	validate_integer GLUS_LOG_RETENTION_DAYS "${log_retention}" 0 36500 || ret=1
+	validate_integer GLUS_LOG_ROTATIONS "${log_rotations}" 0 100000 || ret=1
 	validate_integer GLUS_FETCH_ATTEMPTS "${fetch_attempts}" 1 100 || ret=1
 	validate_integer GLUS_FETCH_DELAY "${fetch_delay}" 0 86400 || ret=1
 	validate_integer GLUS_CANCEL_GRACE "${cancel_grace}" 0 300 || ret=1
@@ -1092,14 +1096,26 @@ initialize_run() {
 }
 
 prune_run_logs() {
-	local candidate
-	[ "${log_retention}" -gt 0 ] || return 0
-	while IFS= read -r -d '' candidate; do
+	local candidate entry kept=1
+	if [ "${log_retention}" -gt 0 ]; then
+		while IFS= read -r -d '' candidate; do
+			[ "${candidate}" != "${LOGS}" ] || continue
+			if [ -f "${candidate}/.glus-run" ] && [ -f "${candidate}/summary.txt" ] && [ ! -L "${candidate}" ]; then
+				rm -rf -- "${candidate}"
+			fi
+		done < <(find "${log_dir}" -mindepth 1 -maxdepth 1 -type d -name 'run-*' -mtime "+${log_retention}" -print0)
+	fi
+	[ "${log_rotations}" -gt 0 ] || return 0
+	# Reserve one slot for the current run, then keep the newest completed runs.
+	# Unfinished, unmarked and symlinked directories are never rotation candidates.
+	while IFS= read -r -d '' entry; do
+		candidate="${entry#* }"
 		[ "${candidate}" != "${LOGS}" ] || continue
 		if [ -f "${candidate}/.glus-run" ] && [ -f "${candidate}/summary.txt" ] && [ ! -L "${candidate}" ]; then
-			rm -rf -- "${candidate}"
+			((++kept))
+			if [ "${kept}" -gt "${log_rotations}" ]; then rm -rf -- "${candidate}"; fi
 		fi
-	done < <(find "${log_dir}" -mindepth 1 -maxdepth 1 -type d -name 'run-*' -mtime "+${log_retention}" -print0)
+	done < <(find "${log_dir}" -mindepth 1 -maxdepth 1 -type d -name 'run-*' -printf '%T@ %p\0' | sort -zrn)
 }
 
 supervise_plan() {
@@ -1173,6 +1189,7 @@ finalize_run() {
 	} >"${LOGS}/summary.txt"
 	cat "${LOGS}/summary.txt"
 	notify_run "${ret}"
+	prune_run_logs
 	return 0
 }
 
@@ -1344,7 +1361,8 @@ main() {
 	full="false"
 
 	log_dir="${GLUS_LOG_DIR:-/var/log/glus}"
-	log_retention="${GLUS_LOG_RETENTION_DAYS-30}"
+	log_retention="${GLUS_LOG_RETENTION_DAYS-0}"
+	log_rotations="${GLUS_LOG_ROTATIONS-10}"
 	fetch_attempts="${GLUS_FETCH_ATTEMPTS-3}"
 	fetch_delay="${GLUS_FETCH_DELAY-300}"
 	cancel_grace="${GLUS_CANCEL_GRACE-10}"

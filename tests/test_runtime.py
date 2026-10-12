@@ -124,6 +124,44 @@ main --no-sync --no-security --color false --quiet
             for name in ('run-unfinished', 'run-foreign', 'run-recent', 'run-link'):
                 self.assertTrue((logs / name).exists())
 
+    def test_rotation_count_defaults_configuration_and_cli_override(self):
+        for config, options, expected in (
+            ('', '', 10), ('GLUS_LOG_ROTATIONS=4\n', '', 4),
+            ('GLUS_LOG_ROTATIONS=4\n', '--log-rotations 3', 3),
+            ('GLUS_LOG_ROTATIONS=0\n', '', 13),
+        ):
+            with self.subTest(config=config, options=options), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'glus.conf').write_text(config)
+                logs = root / 'logs'
+                logs.mkdir()
+                for i in range(12):
+                    run = logs / f'run-old-{i:02d}'
+                    run.mkdir()
+                    (run / '.glus-run').touch()
+                    (run / 'summary.txt').write_text('completed\n')
+                    timestamp = time.time() - 3600 + i
+                    os.utime(run, (timestamp, timestamp))
+                unfinished = logs / 'run-unfinished'
+                unfinished.mkdir()
+                (unfinished / '.glus-run').touch()
+                foreign = logs / 'run-foreign'
+                foreign.mkdir()
+                (foreign / 'summary.txt').touch()
+                (logs / 'run-link').symlink_to(foreign, target_is_directory=True)
+                result = bash(runtime_setup(root) + f'''
+main --packages-only sys-libs/readline --quiet --color false {options}
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                kept = [p for p in logs.glob('run-*') if not p.is_symlink()
+                        and (p / '.glus-run').exists() and (p / 'summary.txt').exists()]
+                self.assertEqual(len(kept), expected)
+                old_kept = sorted(p.name for p in kept if p.name.startswith('run-old-'))
+                self.assertEqual(old_kept, [f'run-old-{i:02d}' for i in range(13 - expected, 12)])
+                self.assertTrue(unfinished.exists())
+                self.assertTrue(foreign.exists())
+                self.assertTrue((logs / 'run-link').is_symlink())
+
     def test_plan_creates_no_runtime_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -301,7 +339,8 @@ exit "$ret"
 
     def test_rejects_invalid_numbers_before_execution(self):
         for option, value in (('--fetch-attempts', '0'), ('--fetch-delay', 'abc'),
-                              ('--cancel-grace', '999'), ('--log-retention-days', '01')):
+                              ('--cancel-grace', '999'), ('--log-retention-days', '01'),
+                              ('--log-rotations', 'abc'), ('--log-rotations', '100001')):
             result = plan(f'{option} {value}')
             self.assertEqual(result.returncode, 2)
             self.assertNotIn('Plan step:', result.stdout)
