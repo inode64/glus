@@ -428,26 +428,20 @@ format_command() {
 
 run_config_command() {
 	local config_command
+	local -a command_args
 
 	config_command="${1-}"
 	if [ ! "${config_command}" ]; then
 		return 0
 	fi
 
-	# Re-parse the configured string with shell quoting rules so arguments
-	# containing spaces can be expressed as 'quoted strings'.
-	# validate_config_command already rejects the dangerous shell operators
-	# (; | & < > ` $( <( >( ) before we get here.
-	if ! eval "set -- ${config_command}" 2>/dev/null; then
-		print_error "Invalid config command: ${config_command}"
-		return 1
-	fi
+	parse_config_command hook "${config_command}" || return
 
-	if [ "${#}" -eq 0 ]; then
+	if [ "${#command_args[@]}" -eq 0 ]; then
 		return 0
 	fi
 
-	command "$@"
+	command "${command_args[@]}"
 }
 
 validate_bool() {
@@ -500,32 +494,64 @@ validate_email() {
 	return 1
 }
 
-validate_config_command() {
-	local name value
-	local -a command_args
+# Split hook arguments without evaluating shell code or expansions.
+# command_args is a local array in the caller, populated through Bash scope.
+parse_config_command() {
+	local name="${1:?}" value="${2-}"
+	local char quote='' word='' escaped=false started=false i
+	command_args=()
 
-	name="${1:?}"
-	value="${2-}"
-
-	if [ ! "${value}" ]; then
-		return 0
-	fi
-
-	# Reject shell operators and command substitution so it is safe for
-	# run_config_command to re-parse the value with `eval set --`. The
-	# character class already catches `<` and `>` (and therefore <( and >()
-	# so only `$(` needs its own pattern.
 	case "${value}" in
-	*[\;\|\&\<\>\`]* | *\$\(*)
+	*[\;\|\&\<\>\`]* | *\$\(* | *$'\n'* | *$'\r'*)
 		print_error "Invalid ${name}: shell operators are not supported. Use a wrapper script instead."
 		return 1
 		;;
 	esac
 
-	if ! eval "command_args=(${value})" 2>/dev/null; then
+	for ((i = 0; i < ${#value}; i++)); do
+		char="${value:i:1}"
+		if [ "${escaped}" = true ]; then
+			# Within double quotes, backslashes only escape shell-special characters.
+			if [ "${quote}" = '"' ] && [[ "${char}" != [\$\"\\] ]]; then
+				word+="\\"
+			fi
+			word+="${char}"
+			escaped=false
+		elif [ "${quote}" = "'" ]; then
+			if [ "${char}" = "'" ]; then quote=''; else word+="${char}"; fi
+		elif [ "${char}" = "\\" ]; then
+			escaped=true
+			started=true
+		elif [ "${quote}" = '"' ]; then
+			if [ "${char}" = '"' ]; then quote=''; else word+="${char}"; fi
+		else
+			case "${char}" in
+			"'" | '"') quote="${char}"; started=true ;;
+			' ' | $'\t')
+				if [ "${started}" = true ]; then
+					command_args+=("${word}")
+					word=''
+					started=false
+				fi
+				;;
+			*) word+="${char}"; started=true ;;
+			esac
+		fi
+	done
+
+	if [ -n "${quote}" ] || [ "${escaped}" = true ]; then
 		print_error "Invalid ${name}: unbalanced quotes or unparseable value: ${value}"
 		return 1
 	fi
+	if [ "${started}" = true ]; then command_args+=("${word}"); fi
+	return 0
+}
+
+validate_config_command() {
+	local name="${1:?}" value="${2-}"
+	local -a command_args
+
+	parse_config_command "${name}" "${value}" || return
 	if [ "${#command_args[@]}" -eq 0 ]; then
 		return 0
 	fi
