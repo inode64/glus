@@ -255,7 +255,7 @@ opt_parse() {
 		--*=*)
 			opt_split_equals "${@-}"
 			shift
-			set -- "${optName:?}" "${optArg?}" "${@-}"
+			set -- "${optName:?}" "${optArg?}" "$@"
 			continue
 			;;
 		# If an option did not match any pattern, an error is thrown.
@@ -264,7 +264,7 @@ opt_parse() {
 		-?*)
 			opt_split_short "${@-}"
 			shift
-			set -- "${optAName:?}" "${optBName:?}" "${@-}"
+			set -- "${optAName:?}" "${optBName:?}" "$@"
 			continue
 			;;
 		# Positional arguments are only supported after "--".

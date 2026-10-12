@@ -90,6 +90,23 @@ run_config_command 'printf "two words" '\''single quoted'\'' escaped\ space "" l
 
 
 class Arguments(unittest.TestCase):
+    def test_equals_and_grouped_flags_at_end(self):
+        for options in ('--color=false -SC', '-SC --color=false', '-SCP --color=false'):
+            result = bash(f'''
+opt_parse {options}
+printf '%s %s %s' "$color" "$sync" "$clean"
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, 'false true true')
+
+    def test_equals_preserves_spaces_and_following_options(self):
+        result = bash('''
+opt_parse '--packages=app-one/pkg app-two/pkg' --color=false
+printf '%s:%s' "$packages" "$color"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'app-one/pkg app-two/pkg:false')
+
     def test_entrypoint_preserves_zero_arguments(self):
         result = bash('main() { printf "%s" "$#"; }\nmain ' + ENTRYPOINT)
         self.assertEqual(result.returncode, 0, result.stderr)
