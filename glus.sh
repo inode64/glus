@@ -69,6 +69,8 @@ Last_gcc() {
 }
 
 update_devel() {
+	local has_python_selector=false
+
 	if [ "${fetch:?}" = 'true' ] || [ "${pretend}" = 'true' ] || [ "${debug:?}" = 'true' ]; then
 		return
 	fi
@@ -78,10 +80,21 @@ update_devel() {
 	Last_binutils || return
 	Last_gcc || return
 
-	# We update 2 times in case the new python does not exist yet
-	eselect python update --python3 || return
+	if builtin command -v eselect >/dev/null 2>&1 && eselect modules has python >/dev/null 2>&1; then
+		has_python_selector=true
+	else
+		print_info 'Skipping Python selector update: eselect python is not installed'
+	fi
+
+	# We update 2 times in case the new python does not exist yet.
+	if [ "${has_python_selector}" = true ]; then
+		eselect python update --python3 || return
+	fi
 	etc-update --automode -5 /etc/python-exec || return
-	eselect python update --python3
+	if [ "${has_python_selector}" = true ]; then
+		eselect python update --python3 || return
+	fi
+	return 0
 }
 
 # Parse command line options.

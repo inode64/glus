@@ -68,7 +68,10 @@ attempted:
 
 6. Refresh development tools before and after package compilation: select the
    latest available binutils and GCC profiles, run `env-update`, and refresh
-   Python wrappers with `eselect python update --python3`.
+   Python wrappers with `eselect python update --python3` when the optional
+   `eselect-python` module is installed. If it is absent, Glus skips the
+   selector updates and continues; failures from an installed selector still
+   stop the run.
 
 7. Resolve `emerge` through the Python exec wrappers in
    `/usr/lib/python-exec/python*/emerge`, which can recover from situations

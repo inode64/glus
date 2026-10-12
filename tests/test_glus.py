@@ -372,7 +372,7 @@ step() {{ ((++calls)); [ "$calls" -ne {fail_at} ] || return 42; }}
 etc-update() {{ step; }}
 Last_binutils() {{ step; }}
 Last_gcc() {{ step; }}
-eselect() {{ step; }}
+eselect() {{ [ "$*" != 'modules has python' ] || return 0; step; }}
 update_devel
 ret=$?
 printf '%s' "$calls"
@@ -380,6 +380,30 @@ exit "$ret"
 ''')
             self.assertEqual(result.returncode, 42, result.stderr)
             self.assertEqual(result.stdout, str(fail_at))
+
+    def test_python_selector_is_optional(self):
+        for available in ('installed', 'missing-module', 'missing-command'):
+            with self.subTest(available=available):
+                setup = "PATH=/nonexistent" if available == 'missing-command' else f'''
+eselect() {{
+    if [ "$*" = 'modules has python' ]; then
+        [ '{available}' = installed ]; return
+    fi
+    printf 'SELECT:%s\\n' "$*"
+}}
+'''
+                result = bash('''
+fetch=false; pretend=false; debug=false
+etc-update() { printf 'CONFIG:%s\\n' "$*"; }
+Last_binutils() { :; }
+Last_gcc() { :; }
+''' + setup + '\nupdate_devel\n')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('CONFIG:--automode -5 /etc/python-exec', result.stdout)
+                self.assertEqual(result.stdout.count('SELECT:python update --python3'),
+                                 2 if available == 'installed' else 0)
+                self.assertEqual('Skipping Python selector update' in result.stdout,
+                                 available != 'installed')
 
     def test_toolchain_environment_survives_command_capture(self):
         with tempfile.TemporaryDirectory() as logs:
