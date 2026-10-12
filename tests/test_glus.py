@@ -21,6 +21,41 @@ def bash(code):
     )
 
 
+def plan(options, setup=''):
+    return bash('''
+SYS_CONF_FILE=/nonexistent/glus-test.conf; errors=0
+get_versions() { :; }
+find_emerge() { printf /fake/emerge; }
+''' + setup + '\nmain --plan --color false ' + options + '\n')
+
+
+class PackageSets(unittest.TestCase):
+    def test_empty_selection_skips_sets_and_keeps_maintenance(self):
+        result = plan('--no-security')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('Update sets', result.stdout)
+        self.assertIn('-u portage', result.stdout)
+        self.assertIn('@preserved-rebuild', result.stdout)
+
+    def test_selected_sets_still_run(self):
+        for options, expected in (
+            ('', '@security'),
+            ('--no-security --go', '@golang-rebuild'),
+            ('--no-security --modules', '@modules-rebuild'),
+            ('--no-security --packages app-test/pkg', 'app-test/pkg'),
+        ):
+            result = plan(options)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Update sets', result.stdout)
+            self.assertIn('-u ' + expected, result.stdout)
+
+    def test_live_only_run_does_not_add_empty_update(self):
+        result = plan('--no-security --live')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('@live-rebuild', result.stdout)
+        self.assertNotIn('Update sets', result.stdout)
+
+
 class PortageCleanup(unittest.TestCase):
     def test_only_missing_processes_allow_cleanup(self):
         for status in (0, 1, 2, 3, 127):

@@ -1068,7 +1068,7 @@ main() {
 			fi
 
 			# Compile sets
-			sets=(-u "${package_args[@]}")
+			sets=("${package_args[@]}")
 			if [ "${security:?}" = "true" ]; then
 				# Update security
 				sets+=(@security)
@@ -1080,7 +1080,9 @@ main() {
 				sets+=(@modules-rebuild)
 			fi
 
-			run_process "Update sets" compile "${sets[@]}" || return
+			if [ "${#sets[@]}" -gt 0 ]; then
+				run_process "Update sets" compile -u "${sets[@]}" || return
+			fi
 		fi
 	fi
 
