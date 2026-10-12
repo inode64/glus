@@ -272,3 +272,11 @@ glus.sh --plan
 ```
 glus.sh --qcheck
 ```
+
+# Shared execution plan
+
+Glus builds an ordered list of steps used by both `--plan` and execution.
+Conditional checks use the machine state when the step is reached. The basic
+system fallback runs only if the initial system update fails. Emerge, Perl
+cleanup and reverse-dependency rebuilds share the same option builder for
+binary mode, exclusions, extra emerge options and pretend mode.

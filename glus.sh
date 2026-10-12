@@ -661,6 +661,7 @@ find_emerge() {
 # Compile
 compile() {
 	local command_flags count_errors fetch_ok try emerge
+	local -a emerge_args
 
 	command_flags=()
 	count_errors='true'
@@ -679,13 +680,14 @@ compile() {
 		fi
 		return 1
 	fi
+	build_emerge_args
 	try=3
 
 	if [ "${pretend}" != 'true' ]; then
 		# First try download all files
 		fetch_ok='false'
 		while true; do
-			if command --no-error-count "${emerge}" -f -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "$@"; then
+			if command --no-error-count "${emerge}" -f -1 --keep-going --fail-clean y "${emerge_args[@]}" "$@"; then
 				fetch_ok='true'
 				break
 			fi
@@ -705,7 +707,7 @@ compile() {
 
 	if [ "${fetch:?}" = 'false' ]; then
 		# Compile
-		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" "$@" || return
+		command --pretend-safe "${command_flags[@]}" "${emerge}" -v -1 --keep-going --fail-clean y "${emerge_args[@]}" "$@" || return
 
 		# Update broken merges
 		command --pretend-safe "${command_flags[@]}" emaint "${emaint_args[@]}" --yes merges || return
@@ -797,6 +799,133 @@ command() {
 	return "${err}"
 }
 
+# Plan arguments are stored as arrays, never as executable shell strings.
+add_step() {
+	PLAN_TITLES+=("$1")
+	PLAN_FUNCTIONS+=("$2")
+	shift 2
+	PLAN_OFFSETS+=("${#PLAN_ARGUMENTS[@]}")
+	PLAN_COUNTS+=("$#")
+	PLAN_ARGUMENTS+=("$@")
+}
+
+skip_step() {
+	print_info "Skipped: $1"
+}
+
+build_plan() {
+	PLAN_TITLES=() PLAN_FUNCTIONS=() PLAN_OFFSETS=() PLAN_COUNTS=() PLAN_ARGUMENTS=()
+	local -a sets=("${package_args[@]}")
+	if [ "${sync}" = true ] && [ "${pretend}" != true ]; then
+		[ -z "${GLUS_BEFORE_SYNC-}" ] || add_step 'Before sync hook' run_config_command "${GLUS_BEFORE_SYNC}"
+		add_step 'Sync portage' command emaint -a sync
+		[ -z "${GLUS_AFTER_SYNC-}" ] || add_step 'After sync hook' run_config_command "${GLUS_AFTER_SYNC}"
+	else
+		add_step 'Sync portage' skip_step 'Disabled or pretend mode'
+	fi
+	if [ "${pretend}" != true ] && [ "${fetch}" != true ]; then
+		[ -z "${GLUS_BEFORE_COMPILE-}" ] || add_step 'Before compile hook' run_config_command "${GLUS_BEFORE_COMPILE}"
+		add_step 'Portage build directories' clean_portage_dir
+		add_step 'Merge Portage configuration' etc_update_portage
+	fi
+	add_step 'Update portage' compile -u portage
+	add_step 'Check crypt headers' ensure_crypt
+	[ "${system}" != true ] || add_step 'Update system' update_system
+	if [ "${world}" = true ]; then
+		add_step 'Update world' compile -uDN world --complete-graph=y --with-bdeps=y
+	elif [ "${full}" = true ]; then
+		add_step 'Rebuild world' compile -ueDN world --complete-graph=y --with-bdeps=y
+	else
+		[ "${live}" != true ] || add_step 'Update live packages' compile @live-rebuild
+		[ "${security}" != true ] || sets+=(@security)
+		[ "${go}" != true ] || sets+=(@golang-rebuild)
+		[ "${modules}" != true ] || sets+=(@modules-rebuild)
+		if [ "${#sets[@]}" -gt 0 ]; then
+			add_step 'Update sets' compile -u "${sets[@]}"
+		else
+			add_step 'Optional package sets' skip_step 'No package sets selected'
+		fi
+	fi
+	if [ "${fetch}" != true ]; then
+		[ "${clean}" != true ] || add_step 'Remove unused packages' emerge_action --depclean
+		add_step 'Rebuild preserved packages' emerge_action @preserved-rebuild
+		if [ "${pretend}" != true ]; then
+			add_step 'Update Perl packages' rebuild_perl
+			if [ "${check}" = true ]; then
+				add_step 'Check reverse dependencies' rebuild_dependencies
+				[ "${qcheck}" != true ] || add_step 'Check package integrity' command qcheck -B -P -v
+			fi
+			[ -z "${GLUS_AFTER_COMPILE-}" ] || add_step 'After compile hook' run_config_command "${GLUS_AFTER_COMPILE}"
+		fi
+		add_step 'Maintain world metadata' command --pretend-safe emaint "${emaint_args[@]}" world
+		if [ "${clean}" = true ]; then
+			[ "${#binary_args[@]}" -eq 0 ] || add_step 'Clean binary archives' command --pretend-safe eclean -C -d "${pretend_args[@]}" packages
+			add_step 'Clean source archives' command --pretend-safe eclean -C -d "${pretend_args[@]}" distfiles
+		fi
+		add_step 'Check systemd version' change_versions
+	fi
+}
+
+ensure_crypt() {
+	if [ -e /usr/include/crypt.h ]; then
+		skip_step 'crypt.h is present'
+	else
+		compile -1u sys-libs/libxcrypt
+	fi
+}
+
+update_system() {
+	if [ "${dry_run-false}" = true ] || [ "${debug-false}" = true ]; then
+		print_info 'Conditional fallback: retry with basic system update (-u system) if the full update fails'
+	fi
+	if compile --no-error-count -uDN system; then
+		return 0
+	fi
+	print_warn 'Full system update failed, trying basic system update'
+	compile -u system
+}
+
+# All emerge callers use the same option builder. Resolve the wrapper again
+# after each toolchain update because the Python interpreter may have changed.
+build_emerge_args() {
+	emerge_args=("${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "${pretend_args[@]}")
+}
+
+emerge_action() {
+	local emerge
+	local -a emerge_args
+	emerge=$(find_emerge) || return
+	build_emerge_args
+	command --pretend-safe "${emerge}" "${emerge_args[@]}" "$@"
+}
+
+rebuild_perl() {
+	local -a emerge_args
+	build_emerge_args
+	command /usr/sbin/perl-cleaner --all -- -v --fail-clean y "${emerge_args[@]}"
+}
+
+rebuild_dependencies() {
+	local -a emerge_args
+	build_emerge_args
+	command revdep-rebuild -i -v -- -v --fail-clean y "${emerge_args[@]}"
+}
+
+execute_plan() {
+	local i offset count ret
+	local -a args
+	for ((i = 0; i < ${#PLAN_TITLES[@]}; i++)); do
+		offset="${PLAN_OFFSETS[i]}" count="${PLAN_COUNTS[i]}"
+		args=("${PLAN_ARGUMENTS[@]:offset:count}")
+		start_process "${PLAN_TITLES[i]}"
+		"${PLAN_FUNCTIONS[i]}" "${args[@]}"
+		ret=$?
+		stop_process
+		[ "${ret}" -eq 0 ] || return "${ret}"
+	done
+	return 0
+}
+
 check_pkg() {
 	if grep -q ^PKGDIR= /etc/make.conf || grep -q ^PKGDIR= /etc/portage/make.conf; then
 		return 0
@@ -830,7 +959,7 @@ change_versions() {
 }
 
 main() {
-	local -a binary_args color_args emaint_args emerge_opts_args exclude_args package_args pretend_args sets
+	local -a binary_args color_args emaint_args emerge_opts_args exclude_args package_args pretend_args
 
 	if [ -f "${SYS_CONF_FILE}" ]; then
 		set -a
@@ -998,130 +1127,8 @@ main() {
 	esac
 
 	get_versions
-
-	if [ "${sync:?}" = 'true' ]; then
-		if [ "${GLUS_BEFORE_SYNC}" ]; then
-			# Execute command before sync portage
-			run_config_command "${GLUS_BEFORE_SYNC}" || return
-		fi
-
-		run_process "Sync portage" command emaint -a sync || return
-
-		if [ "${GLUS_AFTER_SYNC}" ]; then
-			# Execute command after sync portage
-			run_config_command "${GLUS_AFTER_SYNC}" || return
-		fi
-	fi
-
-	if [ "${GLUS_BEFORE_COMPILE}" ] && [ "${pretend}" != 'true' ]; then
-		# Execute command before compile
-		run_config_command "${GLUS_BEFORE_COMPILE}" || return
-	fi
-
-	# Empty portage tmp dir
-	clean_portage_dir || return
-
-	# Update config in /etc/portage
-	etc_update_portage || return
-
-	# First update the portage
-	run_process "Update portage" compile -u portage || return
-
-	# Fix compile errors when /usr/include/crypt.h is missing
-	if [ ! -e /usr/include/crypt.h ]; then
-		compile -1u sys-libs/libxcrypt || return
-	fi
-
-	# Update the system base
-	if [ "${system:?}" = "true" ]; then
-		local ret
-
-		start_process "Update system"
-		# First try to compile all updates
-		compile --no-error-count -uDN system || print_warn "Full system update failed, trying basic system update"
-		# Compile only the basic system because sometimes you can't compile everything because of perl or python dependencies
-		compile -u system
-		ret=$?
-		stop_process
-		[ "${ret}" -eq 0 ] || return "${ret}"
-	fi
-
-	if [ "${world:?}" = "true" ]; then
-		run_process "Update world" compile -uDN world --complete-graph=y --with-bdeps=y || return
-	else
-		if [ "${full:?}" = "true" ]; then
-			run_process "Update really world" compile -ueDN world --complete-graph=y --with-bdeps=y || return
-		else
-			# Force compiles the live packages
-			if [ "${live:?}" = "true" ]; then
-				run_process "Update live packages" compile @live-rebuild || return
-			fi
-
-			# Compile sets
-			sets=("${package_args[@]}")
-			if [ "${security:?}" = "true" ]; then
-				# Update security
-				sets+=(@security)
-			fi
-			if [ "${go:?}" = "true" ]; then
-				sets+=(@golang-rebuild)
-			fi
-			if [ "${modules:?}" = "true" ]; then
-				sets+=(@modules-rebuild)
-			fi
-
-			if [ "${#sets[@]}" -gt 0 ]; then
-				run_process "Update sets" compile -u "${sets[@]}" || return
-			fi
-		fi
-	fi
-
-	if [ "${fetch:?}" = 'false' ]; then
-		# Remove old packages
-		if [ "${clean:?}" = 'true' ]; then
-			command --pretend-safe emerge --depclean "${pretend_args[@]}" "${exclude_args[@]}" || return
-		fi
-
-		run_process "Rebuild preserved packages" command --pretend-safe emerge "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "${pretend_args[@]}" @preserved-rebuild || return
-
-		if [ "${pretend}" != 'true' ]; then
-			# Recompile all perl packages
-			run_process "Update perl packages" command /usr/sbin/perl-cleaner --all -- "${color_args[@]}" -v --fail-clean y "${binary_args[@]}" "${pretend_args[@]}" || return
-
-			if [ "${check:?}" = 'true' ]; then
-				# Check system integrity: Reverse Dependency Rebuilder
-				command revdep-rebuild -i -v -- -v "${color_args[@]}" --fail-clean y "${binary_args[@]}" "${pretend_args[@]}" || return
-
-				if [ "${qcheck:?}" = 'true' ]; then
-					# Check package file integrity while ignoring protected config paths.
-					command --pretend-safe qcheck -B -P -v || return
-				fi
-			fi
-		fi
-
-		if [ "${GLUS_AFTER_COMPILE}" ] && [ "${pretend}" != 'true' ]; then
-			# Execute command after all
-			run_config_command "${GLUS_AFTER_COMPILE}" || return
-		fi
-
-		# Check and fix problems in the world file
-		command --pretend-safe emaint "${emaint_args[@]}" world || return
-
-		if [ "${clean:?}" = 'true' ]; then
-			if [ "${#binary_args[@]}" -gt 0 ]; then
-				command --pretend-safe eclean -C -d "${pretend_args[@]}" packages || return
-			fi
-			command --pretend-safe eclean -C -d "${pretend_args[@]}" distfiles || return
-		fi
-	fi
-
-	# Check if they have changed any programs and need to reload
-	change_versions
-
-	if [ "${errors}" -ne 0 ]; then
-		print_error "${errors} command(s) failed"
-		return 1
-	fi
+	build_plan
+	execute_plan
 }
 
 main "$@"
