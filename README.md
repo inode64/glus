@@ -86,6 +86,10 @@ attempted:
 
 10. Rebuild preserved packages, rebuild Perl packages, and run `revdep-rebuild`
     to find and repair binaries linked against missing or updated libraries.
+    For source builds, Perl maintenance uses `perl-cleaner --all` with options
+    passed through `EMERGE_DEFAULT_OPTS`, preserving Portage's configured defaults.
+    Explicit binary modes still require additional arguments to `perl-cleaner`
+    and produce its upstream warning about package-manager options.
     When `GLUS_QCHECK=true` or `--qcheck` is enabled, also run
     `qcheck -B -P -v` to verify installed package file integrity.
 

@@ -944,9 +944,21 @@ emerge_action() {
 }
 
 rebuild_perl() {
+	local defaults="${EMERGE_DEFAULT_OPTS-}"
 	local -a emerge_args
 	build_emerge_args
-	command /usr/sbin/perl-cleaner --all -- -v --fail-clean y "${emerge_args[@]}"
+	if [ "${#binary_args[@]}" -gt 0 ]; then
+		# perl-cleaner removes binary preferences from EMERGE_DEFAULT_OPTS.
+		# An explicit binary policy therefore still needs command-line options.
+		command /usr/sbin/perl-cleaner --all -- -v --fail-clean y "${emerge_args[@]}"
+	else
+		if [ "${dry_run-}" != true ] && [ "${debug-}" != true ]; then
+			defaults=$(portageq envvar EMERGE_DEFAULT_OPTS) || return
+		fi
+		# Use Portage's regular option environment for source rebuilds. Preserve
+		# make.conf defaults, with Glus options taking precedence for this child.
+		command env "EMERGE_DEFAULT_OPTS=${defaults} -v --fail-clean=y ${emerge_args[*]}" /usr/sbin/perl-cleaner --all
+	fi
 }
 
 rebuild_dependencies() {

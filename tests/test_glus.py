@@ -235,7 +235,12 @@ class CompileOptions(unittest.TestCase):
             line = next(line for line in result.stdout.splitlines()
                         if 'Plan command:' in line and tool in line)
             args = shlex.split(line.split('Plan command: ', 1)[1])
-            options = args[args.index('--') + 1:]
+            if tool == 'perl-cleaner':
+                options = next(arg.split('=', 1)[1].split() for arg in args
+                               if arg.startswith('EMERGE_DEFAULT_OPTS='))
+                self.assertNotIn('--', args)
+            else:
+                options = args[args.index('--') + 1:]
             # Reproduce the unquoted option expansion used by perl-cleaner.
             split = subprocess.run(
                 ['bash', '-c', 'options="$*"; printf "%s\\n" $options', '_', *options],
@@ -244,6 +249,40 @@ class CompileOptions(unittest.TestCase):
             self.assertIn('--exclude=sys-kernel/gentoo*', split)
             self.assertIn('--exclude=sys-kernel/bliss-kernel-bin', split)
             self.assertNotIn('sys-kernel/bliss-kernel-bin', split)
+
+    def test_source_perl_rebuild_preserves_defaults_and_failure(self):
+        result = bash('''
+dry_run=false; debug=false
+color_args=(--color n); exclude_args=(--exclude=app-test/pkg)
+emerge_opts_args=(--jobs=2 --usepkg=n --getbinpkg=n)
+binary_args=(); pretend_args=()
+EMERGE_DEFAULT_OPTS=original
+portageq() { printf -- '--load-average=4 --jobs=3'; }
+command() {
+    [ "$1" = env ] && [ "$3" = /usr/sbin/perl-cleaner ] &&
+    [ "$4" = --all ] && [ "$#" = 4 ] || return 99
+    env "$2" bash -c 'printf "%s\\n" "$EMERGE_DEFAULT_OPTS"; exit 42'
+}
+rebuild_perl
+ret=$?
+printf 'parent=%s\\n' "$EMERGE_DEFAULT_OPTS"
+exit "$ret"
+''')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertIn('--load-average=4 --jobs=3 -v --fail-clean=y', result.stdout)
+        self.assertIn('--exclude=app-test/pkg --jobs=2 --usepkg=n --getbinpkg=n', result.stdout)
+        self.assertIn('parent=original', result.stdout)
+
+    def test_perl_rebuild_stops_if_defaults_cannot_be_read(self):
+        result = bash('''
+dry_run=false; debug=false
+color_args=(); exclude_args=(); emerge_opts_args=(); binary_args=(); pretend_args=()
+portageq() { return 42; }
+command() { echo UNEXPECTED_EXECUTION; }
+rebuild_perl
+''')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertNotIn('UNEXPECTED_EXECUTION', result.stdout)
 
     def compile_commands(self, binary='', options='', fetch='false'):
         result = bash(f'''
