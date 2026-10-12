@@ -100,6 +100,11 @@ attempted:
 
 # Run logs and summaries
 
+`--color false` (or `GLUS_COLOR=false`) also exports `NOCOLOR=true` and
+`NO_COLOR=1` to synchronization and build tools, keeping their output suitable
+for plain-text logs and Healthchecks. `--color auto` does the same when output
+is not a terminal.
+
 Each execution creates a private directory under `/var/log/glus`, named
 `run-<UTC timestamp>-<unique suffix>`. Override the parent directory with
 `GLUS_LOG_DIR` or `--log-dir /absolute/path`. Failure to create logs stops the

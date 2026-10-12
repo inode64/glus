@@ -1331,6 +1331,10 @@ main() {
 		color_args=()
 	else
 		color_args=(--color n)
+		COLOR_RESET='' COLOR_BRED='' COLOR_BGREEN='' COLOR_BYELLOW='' COLOR_BCYAN=''
+		# emaint sync, Gentoo shell helpers and build tools do not receive emerge's
+		# --color option. Propagate the same policy to their environments.
+		export NOCOLOR=true NO_COLOR=1
 	fi
 
 	# Set "NO_STDOUT" variable if the quiet option is enabled (other methods will honor this variable).

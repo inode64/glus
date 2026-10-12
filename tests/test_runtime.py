@@ -34,6 +34,29 @@ rebuild_dependencies() {{ command true; }}
 
 
 class PersistentLogs(unittest.TestCase):
+    def test_disabled_colors_reach_sync_children_and_logs(self):
+        for mode in ('false', 'auto'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = bash(runtime_setup(root) + f'''
+emaint() {{
+    bash -c 'if [ "$NOCOLOR" = true ] && [ "$NO_COLOR" = 1 ]; then
+        printf "plain sync output\\n"
+    else
+        printf "\\033[32mcolored sync output\\033[0m\\n"
+    fi'
+}}
+main --sync --no-security --color {mode}
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('plain sync output', result.stdout)
+                self.assertNotIn('\x1b', result.stdout + result.stderr)
+                run = next((root / 'logs').glob('run-*'))
+                self.assertTrue(any('plain sync output' in log.read_text()
+                                    for log in run.glob('command-*.log')))
+                for log in run.glob('*.log'):
+                    self.assertNotIn(b'\x1b', log.read_bytes())
+
     def test_complete_script_with_isolated_configuration(self):
         script = Path(__file__).resolve().parents[1] / 'glus.sh'
         for mode in ('--plan', '--debug', '--pretend', ''):
