@@ -278,6 +278,60 @@ compile -u portage
             self.assertIn('--load-average=4', command)
 
 
+class ToolchainProfiles(unittest.TestCase):
+    def test_native_latest_selection_does_not_count_listing_lines(self):
+        for function, utility in (('Last_gcc', 'gcc-config'), ('Last_binutils', 'binutils-config')):
+            result = bash(f'''
+fetch=false; pretend=false; debug=false
+function /usr/bin/{utility} {{
+    case "$1" in
+        -l) printf '  [1] aarch64-linux-gnu-old\\n\\n  [2] x86_64-pc-linux-gnu-new *\\n' ;;
+        latest) printf 'SELECT_NATIVE_LATEST\\n' ;;
+        *) echo 'Invalid numeric profile' >&2; return 42 ;;
+    esac
+}}
+function /usr/sbin/env-update {{ printf 'ENV_UPDATE\\n'; }}
+function . {{
+    [ "$1" = /etc/profile ] || return 43
+    export GLUS_TEST_PROFILE=loaded
+}}
+{function}
+ret=$?
+printf '%s' "$GLUS_TEST_PROFILE"
+exit "$ret"
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, 'SELECT_NATIVE_LATEST\nENV_UPDATE\nloaded')
+
+    def test_selection_and_environment_failures_propagate(self):
+        for function, utility in (('Last_gcc', 'gcc-config'), ('Last_binutils', 'binutils-config')):
+            for fail_at in (1, 2, 3):
+                result = bash(f'''
+fetch=false; pretend=false; debug=false; calls=0
+step() {{ ((++calls)); [ "$calls" -ne {fail_at} ] || return 42; }}
+function /usr/bin/{utility} {{ step; }}
+function /usr/sbin/env-update {{ step; }}
+function . {{ step; }}
+{function}
+ret=$?
+printf '%s' "$calls"
+exit "$ret"
+''')
+                self.assertEqual(result.returncode, 42, result.stderr)
+                self.assertEqual(result.stdout, str(fail_at))
+
+    def test_simulation_and_fetch_do_not_select_profiles(self):
+        for function, utility in (('Last_gcc', 'gcc-config'), ('Last_binutils', 'binutils-config')):
+            for mode in ('fetch', 'pretend', 'debug'):
+                result = bash(f'''
+fetch=false; pretend=false; debug=false; {mode}=true
+function /usr/bin/{utility} {{ printf 'UNEXPECTED_SELECTION'; return 42; }}
+{function}
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, '')
+
+
 class ToolchainFailures(unittest.TestCase):
     def test_failure_before_or_after_compile_is_reported(self):
         for fail_at in (1, 2):

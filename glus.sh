@@ -93,14 +93,8 @@ Last_binutils() {
 		return 0
 	fi
 
-	local last
-
-	last=$(set -o pipefail; /usr/bin/binutils-config -l | wc -l) || return
-	if ! [ "${last}" -gt 0 ] 2>/dev/null; then
-		return 0
-	fi
-
-	/usr/bin/binutils-config "${last}" || return
+	# Let binutils-config select the newest profile for the native host.
+	/usr/bin/binutils-config latest || return
 	/usr/sbin/env-update || return
 
 	# shellcheck disable=SC1091
@@ -114,14 +108,8 @@ Last_gcc() {
 		return 0
 	fi
 
-	local last
-
-	last=$(set -o pipefail; /usr/bin/gcc-config -l | wc -l) || return
-	if ! [ "${last}" -gt 0 ] 2>/dev/null; then
-		return 0
-	fi
-
-	/usr/bin/gcc-config "${last}" || return
+	# Let gcc-config select the newest profile for the native host.
+	/usr/bin/gcc-config latest || return
 	/usr/sbin/env-update || return
 
 	# shellcheck disable=SC1091
