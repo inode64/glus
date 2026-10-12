@@ -106,7 +106,7 @@ main --no-sync --no-security --color false --quiet
             root = Path(directory)
             result = bash(runtime_setup(root) + '''
 curl() { echo UNEXPECTED_NETWORK; return 1; }
-main --plan --color false --notify always
+main --plan --color false --slack-webhook https://hooks.slack.com/services/T/B/SECRET --notify always
 ''')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn('UNEXPECTED_NETWORK', result.stdout)
@@ -227,6 +227,90 @@ exit "$ret"
             self.assertNotIn('Plan step:', result.stdout)
 
 
+class SlackNotifications(unittest.TestCase):
+    def test_email_and_slack_both_receive_the_final_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'summary.txt').write_text('summary\n')
+            result = bash(f'''
+LOGS={shlex.quote(directory)}; notify_mode=always; email=admin@example.com
+slack_webhook=https://hooks.slack.com/services/T/B/SECRET
+mailx() {{ cat >"$LOGS/email-message"; }}
+curl() {{ cat >/dev/null; printf ok; }}
+notify_run 0
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / 'email-message').read_text(), 'summary\n')
+            self.assertEqual((root / 'notifications.log').read_text(), 'Email: sent\nSlack: sent\n')
+
+    def test_payload_and_secret_handling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'summary.txt').write_text('GLUS "host": failed\nDuration: 1s\nSteps: 1\nLogs: /tmp/café\\logs\n')
+            result = bash(f'''
+LOGS={shlex.quote(directory)}; notify_mode=always
+slack_webhook=https://hooks.slack.com/services/T/B/TESTSECRET
+curl() {{ printf '%s\\n' "$@" >"$LOGS/curl-args"; cat >"$LOGS/curl-config"; printf ok; }}
+notify_run 1
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads((root / 'slack.json').read_text())
+            self.assertEqual(data['blocks'][0]['text']['type'], 'plain_text')
+            self.assertIn('café\\logs', data['blocks'][0]['text']['text'])
+            self.assertNotIn('TESTSECRET', (root / 'curl-args').read_text())
+            self.assertIn('TESTSECRET', (root / 'curl-config').read_text())
+            self.assertNotIn('TESTSECRET', result.stdout + result.stderr)
+            self.assertIn('Slack: sent', (root / 'notifications.log').read_text())
+
+    def test_notification_policy_and_simulation(self):
+        cases = [('failures', 0, '', False), ('failures', 1, '', True),
+                 ('always', 0, '', True), ('never', 1, '', False),
+                 ('always', 1, 'dry_run=true', False),
+                 ('always', 1, 'pretend=true', False),
+                 ('always', 1, 'debug=true', False)]
+        for mode, status, flags, send in cases:
+            with self.subTest(mode=mode, status=status, flags=flags), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'summary.txt').write_text('summary')
+                result = bash(f'''
+LOGS={shlex.quote(directory)}; notify_mode={mode}
+slack_webhook=https://hooks.slack.com/services/T/B/SECRET
+curl() {{ cat >/dev/null; echo CALLED >"$LOGS/called"; printf ok; }}
+{flags}
+notify_run {status}
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / 'called').exists(), send)
+
+    def test_slack_failure_does_not_change_update_status(self):
+        for status in (0, 2):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'glus.conf').write_text('GLUS_SLACK_WEBHOOK="https://hooks.slack.com/services/T/B/SECRET"\nGLUS_NOTIFY=always\n')
+                result = bash(runtime_setup(root) + f'''
+MOCK_EXIT={status}
+curl() {{ cat >/dev/null; return 22; }}
+main --no-sync --no-security --color false
+''')
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn('Slack notification failed', result.stderr)
+                self.assertNotIn('SECRET', result.stdout + result.stderr)
+
+    def test_invalid_webhook_is_rejected_without_revealing_it(self):
+        result = plan('--slack-webhook https://example.com/SECRET')
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn('SECRET', result.stdout + result.stderr)
+
+    def test_no_slack_overrides_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'glus.conf').write_text('GLUS_SLACK_WEBHOOK="https://hooks.slack.com/services/T/B/SECRET"\nGLUS_NOTIFY=always\n')
+            result = bash(runtime_setup(root) + '''
+curl() { echo UNEXPECTED; return 22; }
+main --no-sync --no-security --color false --no-slack
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('UNEXPECTED', result.stdout + result.stderr)
 
 
 class ProcessCancellation(unittest.TestCase):

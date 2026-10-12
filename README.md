@@ -88,7 +88,7 @@ attempted:
 
 11. Optionally run `emerge --depclean`, clean old binary packages and distfiles
     with `eclean`, run compile hooks, reload systemd when required, and write a
-    final summary. Optionally send that summary by email.
+    final summary. Optionally send that summary by email, Slack, or both.
 
 # Run logs and summaries
 
@@ -140,13 +140,43 @@ to participate in cancellation. The instance lock remains held during shutdown.
 Maintenance is unattended: the worker receives closed interactive input
 (`/dev/null`). Hooks and Portage options must not require terminal prompts.
 
-# Email summaries
+# Email and Slack notifications
 
-`GLUS_EMAIL` configures the destination. `GLUS_NOTIFY` / `--notify` accepts
-`failures` (default), `always`, or `never`. One final summary is sent after an
-execution, instead of a message per command failure. No email is sent during
-`--plan`, `--debug`, or `--pretend`. Delivery failure preserves the update's
-exit status and is recorded in `notifications.log`.
+Configure either destination or both in `/etc/portage/glus.conf`:
+
+```bash
+GLUS_EMAIL="admin@example.com"
+GLUS_SLACK_WEBHOOK="https://hooks.slack.com/services/T_EXAMPLE/B_EXAMPLE/REPLACE_ME"
+GLUS_NOTIFY="failures"
+```
+
+`GLUS_NOTIFY` / `--notify` accepts `failures` (default), `always` or `never`.
+Once an execution has started, one final summary is sent according to that
+policy, including interrupted runs. Email now receives the final summary
+instead of separate messages for individual command failures. Slack receives
+the host, result, duration, step counts and the local log path; command output
+is retained locally. A local path is not a downloadable link in Slack.
+
+Create an [incoming webhook in Slack](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/)
+for the destination channel. Slack delivery requires `curl`. `--slack-webhook`
+overrides the configured URL and `--no-slack` disables Slack for a single run.
+Prefer the configuration file over the CLI for the secret URL; restrict the
+configuration file's permissions. Glus does not print the URL or pass it in
+curl's command-line arguments, and removes the configured webhook environment
+variable before running package commands.
+
+Delivery failures are recorded and warned about without changing the update's
+exit status. Slack requests have a 10-second connection timeout and a 20-second
+overall timeout, with no automatic resend to avoid duplicate messages after
+ambiguous responses. No notifications are sent by `--plan`, `--debug` or
+`--pretend`. The documented example is a placeholder, not a usable webhook.
+
+```bash
+glus.sh --plan --world --binary only
+glus.sh --world --fetch-attempts 2 --fetch-delay 60 --notify always
+glus.sh --security --no-slack
+```
+
 
 # Prerequisites
 

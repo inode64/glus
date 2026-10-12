@@ -181,9 +181,10 @@ opt_parse() {
 			email="${optArg:?}"
 			shift "${optShift:?}"
 			;;
-		'--notify' | '--log-dir' | '--log-retention-days' | '--fetch-attempts' | '--fetch-delay' | '--cancel-grace')
+		'--slack-webhook' | '--notify' | '--log-dir' | '--log-retention-days' | '--fetch-attempts' | '--fetch-delay' | '--cancel-grace')
 			opt_arg_str "$@"
 			case "$1" in
+			--slack-webhook) slack_webhook="${optArg}" ;;
 			--notify) notify_mode="${optArg}" ;;
 			--log-dir) log_dir="${optArg}" ;;
 			--log-retention-days) log_retention="${optArg}" ;;
@@ -193,6 +194,7 @@ opt_parse() {
 			esac
 			shift "${optShift}"
 			;;
+		'--no-slack') slack_webhook='' ;;
 		'-v' | '--version') show_version ;;
 		'-h' | '--help') show_help ;;
 		# If "--" is found, the remaining positional arguments are saved and the parsing ends.
@@ -341,8 +343,10 @@ show_help() {
 	     --email <email> \${GLUS_EMAIL}
 	        Send mail for alerts and notifications.
 	        (default: "${email?}")%NL
+	     --slack-webhook <URL>, --no-slack, \${GLUS_SLACK_WEBHOOK}
+	        Send the final summary to a Slack incoming webhook. URL is never displayed.%NL
 	     --notify <failures|always|never>, \${GLUS_NOTIFY}
-	        Final email notification policy (default: ${notify_mode}).%NL
+	        Final email/Slack notification policy (default: ${notify_mode}).%NL
 	     --log-dir <absolute path>, \${GLUS_LOG_DIR}
 	        Persistent run logs (default: ${log_dir}).%NL
 	     --log-retention-days <days>, \${GLUS_LOG_RETENTION_DAYS}
@@ -568,6 +572,15 @@ validate_config() {
 	if [[ "${log_dir}" != /* ]] || [[ "${log_dir}" == *[$'\n\r\t']* ]]; then
 		print_error 'GLUS_LOG_DIR must be an absolute path without control whitespace'
 		ret=1
+	fi
+	if [ -n "${slack_webhook}" ]; then
+		if [[ ! "${slack_webhook}" =~ ^https://hooks\.slack(-gov)?\.com/services/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$ ]]; then
+			print_error 'Invalid Slack incoming webhook URL (value hidden)'
+			ret=1
+		elif [ "${notify_mode}" != never ] && ! builtin command -v curl >/dev/null; then
+			print_error 'curl is required for Slack notifications'
+			ret=1
+		fi
 	fi
 
 	validate_config_command GLUS_BEFORE_SYNC "${GLUS_BEFORE_SYNC-}" || ret=1
@@ -1084,8 +1097,25 @@ finalize_run() {
 	return 0
 }
 
+json_string() {
+	local value="$1" char i ordinal
+	printf '"'
+	for ((i = 0; i < ${#value}; i++)); do
+		char="${value:i:1}"
+		case "${char}" in
+		'"') printf '\\"' ;;
+		"\\") printf '%s%s' "\\" "\\" ;;
+		*)
+			printf -v ordinal '%d' "'${char}"
+			if ((ordinal < 32)); then printf '\\u%04x' "${ordinal}"; else printf '%s' "${char}"; fi
+			;;
+		esac
+	done
+	printf '"'
+}
+
 notify_run() {
-	local ret="$1"
+	local ret="$1" message response
 	[ "${dry_run-false}" != true ] && [ "${debug-false}" != true ] && [ "${pretend-false}" != true ] || return 0
 	[ "${notify_mode-failures}" != never ] || return 0
 	[ "${notify_mode-failures}" = always ] || [ "${ret}" -ne 0 ] || return 0
@@ -1097,7 +1127,22 @@ notify_run() {
 			printf 'Email: sent\n' >>"${LOGS}/notifications.log"
 		fi
 	fi
-	return 0
+	[ -n "${slack_webhook-}" ] || return 0
+	# Plain text blocks prevent log paths/titles from becoming Slack mentions.
+	message=$(head -n4 "${LOGS}/summary.txt")
+	{
+		printf '{"blocks":[{"type":"section","text":{"type":"plain_text","text":'
+		json_string "${message}"
+		printf '}}]}'
+	} >"${LOGS}/slack.json"
+	# Feed the secret through stdin, not argv or the command logger. No redirects
+	# or automatic retries: an ambiguous response must not duplicate a message.
+	if response=$(printf 'url = "%s"\n' "${slack_webhook}" | curl --disable --config - --silent --fail --proto '=https' --connect-timeout 10 --max-time 20 --header 'Content-Type: application/json' --data-binary "@${LOGS}/slack.json" 2>/dev/null) && [ "${response}" = ok ]; then
+		printf 'Slack: sent\n' >>"${LOGS}/notifications.log"
+	else
+		print_warn 'Slack notification failed; update exit status is unchanged'
+		printf 'Slack: failed\n' >>"${LOGS}/notifications.log"
+	fi
 }
 
 check_pkg() {
@@ -1223,7 +1268,10 @@ main() {
 	fetch_attempts="${GLUS_FETCH_ATTEMPTS-3}"
 	fetch_delay="${GLUS_FETCH_DELAY-300}"
 	cancel_grace="${GLUS_CANCEL_GRACE-10}"
+	slack_webhook="${GLUS_SLACK_WEBHOOK-}"
 	notify_mode="${GLUS_NOTIFY-failures}"
+	# The webhook must not be inherited by package builds or hooks.
+	unset GLUS_SLACK_WEBHOOK
 
 	# Parse command line options.
 	opt_parse "$@"
