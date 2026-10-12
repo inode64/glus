@@ -104,5 +104,39 @@ etc_update_portage
         self.assertIn('/usr/sbin/etc-update', result.stdout)
 
 
+class CompileOptions(unittest.TestCase):
+    def compile_commands(self, binary='', options='', fetch='false'):
+        result = bash(f'''
+fetch={fetch}; pretend=false; debug=false; errors=0
+color_args=(); exclude_args=(); pretend_args=()
+binary_args=({binary}); emerge_opts_args=({options})
+update_devel() {{ :; }}
+find_emerge() {{ printf '/fake/emerge'; }}
+command() {{ printf '%s ' "$@"; printf '\\n'; }}
+compile -u portage
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [line.split() for line in result.stdout.splitlines() if '/fake/emerge' in line]
+
+    def test_binary_mode_applies_to_both_phases(self):
+        for flag in ('-k', '-K'):
+            with self.subTest(flag=flag):
+                commands = self.compile_commands(binary=flag)
+                self.assertEqual(len(commands), 2)
+                for command in commands:
+                    self.assertIn(flag, command)
+
+    def test_fetch_only_downloads_binary_packages(self):
+        commands = self.compile_commands(binary='-K', fetch='true')
+        self.assertEqual(len(commands), 1)
+        self.assertIn('-f', commands[0])
+        self.assertIn('-K', commands[0])
+
+    def test_source_mode_does_not_enable_binaries(self):
+        for command in self.compile_commands():
+            self.assertNotIn('-k', command)
+            self.assertNotIn('-K', command)
+
+
 if __name__ == "__main__":
     unittest.main()

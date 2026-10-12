@@ -689,7 +689,7 @@ compile() {
 		# First try download all files
 		fetch_ok='false'
 		while true; do
-			if command --no-error-count "${emerge}" -f -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "$@"; then
+			if command --no-error-count "${emerge}" -f -1 --keep-going --fail-clean y "${color_args[@]}" "${exclude_args[@]}" "${emerge_opts_args[@]}" "${binary_args[@]}" "$@"; then
 				fetch_ok='true'
 				break
 			fi
