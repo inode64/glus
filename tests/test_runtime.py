@@ -13,7 +13,7 @@ import unittest
 from test_glus import FUNCTIONS, bash, plan
 
 
-def runtime_setup(root):
+def runtime_setup(root, *, mock_perl=True):
     return f'''
 SYS_CONF_FILE={shlex.quote(str(root / 'glus.conf'))}
 GLUS_LOG_DIR={shlex.quote(str(root / 'logs'))}
@@ -28,7 +28,7 @@ ensure_crypt() {{ skip_step 'Headers present'; }}
 find_emerge() {{ printf fake_emerge; }}
 fake_emerge() {{ printf 'Fake emerge: %s\\n' "$*"; return "${{MOCK_EXIT:-0}}"; }}
 emaint() {{ printf 'Fake emaint: %s\\n' "$*"; }}
-rebuild_perl() {{ command true; }}
+{'rebuild_perl() { command true; }' if mock_perl else ''}
 rebuild_dependencies() {{ command true; }}
 '''
 
@@ -160,7 +160,9 @@ exit "$ret"
             titles = [line.split('Plan step: ', 1)[1] for line in planned.stdout.splitlines() if 'Plan step: ' in line]
             run = next((root / 'logs').glob('run-*'))
             actual = [line.split('\t')[4] for line in (run / 'steps.tsv').read_text().splitlines()]
-            self.assertEqual(titles, actual)
+            self.assertEqual(len(titles), len(actual))
+            for expected, recorded in zip(titles, actual):
+                self.assertTrue(recorded == expected or recorded.startswith(expected + ' ('), recorded)
 
     def test_rebuilders_share_options(self):
         result = plan("--binary only --exclude 'app-test/*'", setup="EMERGE_OPTS='--jobs=2'")
@@ -170,6 +172,25 @@ exit "$ret"
                 self.assertIn('-K', line)
                 self.assertIn('--exclude', line)
                 self.assertIn('--jobs=2', line)
+
+    def test_binary_only_perl_skip_is_recorded_without_running_commands(self):
+        for mode in ('only', 'autoonly'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = bash(runtime_setup(root, mock_perl=False) + f'''
+check_pkg() {{ return 0; }}
+portageq() {{ echo UNEXPECTED_QUERY; return 42; }}
+main --no-sync --no-security --color false --quiet --binary {mode}
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn('UNEXPECTED_QUERY', result.stdout)
+                run = next((root / 'logs').glob('run-*'))
+                rows = [line.split('\t') for line in (run / 'steps.tsv').read_text().splitlines()]
+                perl = next(row for row in rows if row[4].startswith('Update Perl packages'))
+                self.assertEqual(perl[1:3], ['skipped', '0'])
+                self.assertIn('Binary-only policy', perl[4])
+                self.assertIn('Binary-only policy', (run / 'summary.txt').read_text())
+                self.assertNotIn('perl-cleaner', (run / 'commands.tsv').read_text())
 
 
 class RetryControls(unittest.TestCase):

@@ -212,6 +212,37 @@ etc_update_portage
 
 
 class CompileOptions(unittest.TestCase):
+    def test_perl_maintenance_follows_effective_binary_mode(self):
+        for mode, available, skipped in (
+            ('false', True, False), ('true', True, False), ('only', False, True),
+            ('auto', True, False), ('auto', False, False),
+            ('autoonly', True, True), ('autoonly', False, False),
+        ):
+            with self.subTest(mode=mode, available=available):
+                result = plan(f'--binary {mode} --exclude app-test/pkg', setup=f'''
+check_pkg() {{ return {0 if available else 1}; }}
+EMERGE_OPTS='--jobs=2'
+''')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual('Binary-only policy' in result.stdout, skipped)
+                commands = [shlex.split(line.split('Plan command: ', 1)[1])
+                            for line in result.stdout.splitlines()
+                            if 'Plan command:' in line and '/usr/sbin/perl-cleaner' in line]
+                self.assertEqual(len(commands), 0 if skipped else 1)
+                if commands:
+                    self.assertEqual(commands[0][-2:], ['/usr/sbin/perl-cleaner', '--all'])
+                    options = next(arg.split('=', 1)[1].split() for arg in commands[0]
+                                   if arg.startswith('EMERGE_DEFAULT_OPTS='))
+                    self.assertNotIn('-k', options)
+                    self.assertNotIn('-K', options)
+                    self.assertIn('--exclude=app-test/pkg', options)
+                    self.assertIn('--jobs=2', options)
+                # The Perl step must not alter the binary policy for later callers.
+                revdep = next(line for line in result.stdout.splitlines()
+                              if 'Plan command:' in line and 'revdep-rebuild' in line)
+                if mode == 'true' or (mode == 'auto' and available):
+                    self.assertIn('-k', shlex.split(revdep))
+
     def test_preserved_rebuild_honors_selected_options(self):
         result = plan(
             "--binary only --exclude 'sys-devel/* app-test/pkg' --pretend",

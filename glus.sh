@@ -945,29 +945,29 @@ emerge_action() {
 
 rebuild_perl() {
 	local defaults="${EMERGE_DEFAULT_OPTS-}" ret
-	local -a emerge_args
+	if [ "${binary_args[0]-}" = -K ]; then
+		skip_step 'Binary-only policy prevents rebuilding Perl packages from source'
+		return 0
+	fi
+
+	# Source-capable modes let perl-cleaner manage its own source rebuilds.
+	# Shadow only this function's binary preference for the shared option builder.
+	local -a binary_args=() emerge_args
 	build_emerge_args
-	if [ "${#binary_args[@]}" -gt 0 ]; then
-		# perl-cleaner removes binary preferences from EMERGE_DEFAULT_OPTS.
-		# An explicit binary policy therefore still needs command-line options.
-		command /usr/sbin/perl-cleaner --all -- -v --fail-clean y "${emerge_args[@]}"
-	else
-		if [ "${dry_run-}" != true ] && [ "${debug-}" != true ]; then
-			if defaults=$(portageq envvar EMERGE_DEFAULT_OPTS); then
-				:
-			else
-				ret=$?
-				# portageq returns 1 with empty output for an unset variable.
-				if [ "${ret}" -ne 1 ] || [ -n "${defaults}" ]; then
-					print_error 'Unable to read Portage default options for perl-cleaner'
-					return "${ret}"
-				fi
+	if [ "${dry_run-}" != true ] && [ "${debug-}" != true ]; then
+		if defaults=$(portageq envvar EMERGE_DEFAULT_OPTS); then
+			:
+		else
+			ret=$?
+			# portageq returns 1 with empty output for an unset variable.
+			if [ "${ret}" -ne 1 ] || [ -n "${defaults}" ]; then
+				print_error 'Unable to read Portage default options for perl-cleaner'
+				return "${ret}"
 			fi
 		fi
-		# Use Portage's regular option environment for source rebuilds. Preserve
-		# make.conf defaults, with Glus options taking precedence for this child.
-		command env "EMERGE_DEFAULT_OPTS=${defaults} -v --fail-clean=y ${emerge_args[*]}" /usr/sbin/perl-cleaner --all
 	fi
+	# Preserve make.conf defaults, with Glus options taking precedence for this child.
+	command env "EMERGE_DEFAULT_OPTS=${defaults} -v --fail-clean=y ${emerge_args[*]}" /usr/sbin/perl-cleaner --all
 }
 
 rebuild_dependencies() {
@@ -982,7 +982,7 @@ record_step() {
 }
 
 execute_plan() {
-	local i j offset count started duration ret status
+	local i j offset count started duration ret status title
 	local -a args
 	for ((i = 0; i < ${#PLAN_TITLES[@]}; i++)); do
 		offset="${PLAN_OFFSETS[i]}" count="${PLAN_COUNTS[i]}"
@@ -999,7 +999,9 @@ execute_plan() {
 		status=completed
 		[ -z "${STEP_SKIPPED}" ] || status=skipped
 		[ "${ret}" -eq 0 ] || status=failed
-		record_step "${i}" "${status}" "${ret}" "${duration}" "${PLAN_TITLES[i]}"
+		title="${PLAN_TITLES[i]}"
+		[ -z "${STEP_SKIPPED}" ] || title+=" (${STEP_SKIPPED})"
+		record_step "${i}" "${status}" "${ret}" "${duration}" "${title}"
 		if [ -n "${LOGS-}" ]; then : >"${LOGS}/active-step"; fi
 		if [ "${ret}" -ne 0 ]; then
 			for ((j = i + 1; j < ${#PLAN_TITLES[@]}; j++)); do
