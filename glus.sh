@@ -637,6 +637,10 @@ run_process() {
 
 # Auto merge portage config
 etc_update_portage() {
+	if [ "${fetch:?}" = 'true' ]; then
+		return 0
+	fi
+
 	if [ "${pretend}" != 'true' ] || [ "${debug:?}" = 'true' ]; then
 		command --discard-output /usr/sbin/etc-update --automode -5 /etc/portage || return
 	fi

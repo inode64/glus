@@ -83,5 +83,26 @@ main --packages 'app-one/pkg app-two/pkg'
         self.assertEqual(result.stdout, 'app-one/pkg app-two/pkg')
 
 
+class FetchMode(unittest.TestCase):
+    def test_fetch_never_merges_configuration(self):
+        for debug in ('true', 'false'):
+            result = bash(f'''
+fetch=true; pretend=false; debug={debug}
+command() {{ printf 'CALLED'; }}
+etc_update_portage
+''')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+
+    def test_regular_update_still_merges_configuration(self):
+        result = bash('''
+fetch=false; pretend=false; debug=false
+command() { printf '%s\\n' "$@"; }
+etc_update_portage
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('/usr/sbin/etc-update', result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
