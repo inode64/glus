@@ -337,6 +337,35 @@ exit "$ret"
             result = bash(f'LAST_COMMAND_LOG={shlex.quote(str(path))}\nfetch_retryable 1\n')
             self.assertEqual(result.returncode, 1)
 
+    def simulate_sync(self, status=1, succeed_at=99):
+        return bash(f'''
+errors=0; calls=0; debug=false
+command() {{
+    shift
+    ((++calls))
+    [ "$calls" -lt {succeed_at} ] && return {status}
+    return 0
+}}
+sync_portage
+ret=$?
+printf 'calls=%s errors=%s\\n' "$calls" "$errors"
+exit "$ret"
+''')
+
+    def test_sync_is_retried_once(self):
+        result = self.simulate_sync(succeed_at=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('calls=2 errors=0', result.stdout)
+        result = self.simulate_sync()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('calls=2 errors=1', result.stdout)
+
+    def test_sync_signal_and_invocation_failures_are_not_retried(self):
+        for status in (2, 127, 130):
+            result = self.simulate_sync(status=status)
+            self.assertEqual(result.returncode, status)
+            self.assertIn('calls=1 errors=1', result.stdout)
+
     def test_rejects_invalid_numbers_before_execution(self):
         for option, value in (('--fetch-attempts', '0'), ('--fetch-delay', 'abc'),
                               ('--cancel-grace', '999'), ('--log-retention-days', '01'),

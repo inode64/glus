@@ -54,7 +54,9 @@ attempted:
    list of steps shared by planning and execution. Executing the plan acquires
    an instance lock and creates a persistent run log directory.
 
-2. Sync Portage with `emaint -a sync`, unless synchronization is disabled.
+2. Sync Portage with `emaint -a sync`, unless synchronization is disabled. A
+   failed sync is retried once, since a second run usually picks another mirror
+   when one fails Manifest verification.
 
 3. Run optional sync hooks configured with `GLUS_BEFORE_SYNC` and
    `GLUS_AFTER_SYNC`.

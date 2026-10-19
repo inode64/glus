@@ -792,6 +792,27 @@ fetch_retryable() {
 	return 0
 }
 
+sync_portage() {
+	local ret
+
+	# Portage only retries rsync transfer errors; a mirror that fails Manifest
+	# verification aborts the sync. A second run picks another mirror.
+	command --no-error-count emaint -a sync && return 0
+	ret=$?
+	if [ "${dry_run-}" = 'true' ] || [ "${debug:?}" = 'true' ]; then return "${ret}"; fi
+	case "${ret}" in 2 | 126 | 127) ;; *)
+		if [ "${ret}" -lt 128 ]; then
+			print_warn 'Sync failed; retrying once'
+			[ -z "${LOGS-}" ] || printf 'Sync retry after exit %s\n' "${ret}" >>"${LOGS}/retries.log"
+			command --no-error-count emaint -a sync && return 0
+			ret=$?
+		fi
+		;;
+	esac
+	((++errors))
+	return "${ret}"
+}
+
 command() {
 	local count_errors discard_output err run_in_pretend temp_file command_started
 	local -a pipeline_status
@@ -902,7 +923,7 @@ build_plan() {
 	local -a sets=("${package_args[@]}")
 	if [ "${sync}" = true ] && [ "${pretend}" != true ]; then
 		[ -z "${GLUS_BEFORE_SYNC-}" ] || add_step 'Before sync hook' run_config_command "${GLUS_BEFORE_SYNC}"
-		add_step 'Sync portage' command emaint -a sync
+		add_step 'Sync portage' sync_portage
 		[ -z "${GLUS_AFTER_SYNC-}" ] || add_step 'After sync hook' run_config_command "${GLUS_AFTER_SYNC}"
 	else
 		add_step 'Sync portage' skip_step 'Disabled or pretend mode'
