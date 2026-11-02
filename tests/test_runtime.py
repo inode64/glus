@@ -461,11 +461,22 @@ main --no-sync --no-security --color false --no-slack
             self.assertNotIn('UNEXPECTED', result.stdout + result.stderr)
 
 
-def shared_tree(root, mounted=(), umount_exit=0, mount_exit=0, fstype='nfs'):
+def shared_tree(root, mounted=(), umount_exit=0, mount_exit=0, fstype='nfs', sermo=False, refcount=0):
     """A client whose fstab lists the tree and its packages as noauto NFS shares."""
     calls = shlex.quote(str(root / 'calls'))
     mounted_targets = ' '.join(shlex.quote(target) for target in mounted)
-    return f'''
+    # Never reach a real sermoctl on the test host.
+    sermo_code = f'''
+has_sermo() {{ return 0; }}
+sermoctl() {{
+    case "$1 $2" in
+    'mount status') printf 'name: x\\npath: %s\\nmounted: true\\nrefcount: {refcount}\\nstate: active\\n' "$3" ;;
+    'mount '*) printf 'sermoctl mount %s\\n' "$2" >>{calls}; MOUNTED+=("$2"); return {mount_exit} ;;
+    'umount '*) printf 'sermoctl umount %s\\n' "$2" >>{calls}; return {umount_exit} ;;
+    esac
+}}
+''' if sermo else 'has_sermo() { return 1; }\n'
+    return sermo_code + f'''
 findmnt() {{
     case "$*" in
     *'--output TARGET'*) printf '%s\\n' /usr/portage/packages /home /usr/portage ;;
@@ -578,6 +589,51 @@ kill -TERM $$
             with self.subTest(config=config):
                 result = plan('', setup=config)
                 self.assertEqual(result.returncode, 2, result.stderr)
+
+
+class SermoMounts(unittest.TestCase):
+    def calls(self, root):
+        path = root / 'calls'
+        return path.read_text().splitlines() if path.exists() else []
+
+    def run_glus(self, root, **tree):
+        return bash(runtime_setup(root) + shared_tree(root, sermo=True, **tree) + '''
+main --no-security --color false --quiet
+''')
+
+    def test_sermo_mounts_and_releases_what_is_not_mounted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self.run_glus(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.calls(root), [
+                'sermoctl mount /usr/portage', 'sermoctl mount /usr/portage/packages',
+                'sermoctl umount /usr/portage/packages', 'sermoctl umount /usr/portage'])
+
+    def test_mount_made_outside_sermo_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self.run_glus(root, mounted=['/usr/portage', '/usr/portage/packages'])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.calls(root), [])
+
+    def test_mount_held_by_other_sermo_users_is_shared(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self.run_glus(root, mounted=['/usr/portage'], refcount=2)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.calls(root), [
+                'sermoctl mount /usr/portage', 'sermoctl mount /usr/portage/packages',
+                'sermoctl umount /usr/portage/packages', 'sermoctl umount /usr/portage'])
+
+    def test_plan_names_sermoctl(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = plan('--no-security', setup=shared_tree(root, sermo=True))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Plan command: sermoctl mount /usr/portage', result.stdout)
+            self.assertIn('Plan command: sermoctl umount /usr/portage', result.stdout)
+            self.assertEqual(self.calls(root), [])
 
 
 class BinaryAvailability(unittest.TestCase):

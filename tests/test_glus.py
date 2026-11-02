@@ -25,6 +25,7 @@ def bash(code):
 # The real fstab and Portage of the test host must not change the results.
 HOST_ISOLATION = '''
 findmnt() { :; }
+has_sermo() { return 1; }
 portageq() { printf '/var/db/repos/gentoo\\n'; }
 '''
 

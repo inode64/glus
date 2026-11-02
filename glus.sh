@@ -300,7 +300,8 @@ show_help() {
 	     --[no-]mount, \${GLUS_MOUNT} <auto|false>
 	        Mount the /etc/fstab entries under /usr/portage, /var/db/repos,
 	        /var/cache/binpkgs and /var/cache/distfiles that are not mounted, and
-	        unmount at the end only those mounted by this run.
+	        unmount at the end only those mounted by this run. With Sermo
+	        installed it uses sermoctl mount/umount.
 	        (default: ${mount_mode})%NL
 	     -e, --exclude <EXCLUDE>, \${GLUS_EXCLUDE}
 	        Exclude packages.
@@ -844,25 +845,48 @@ find_portage_mounts() {
 	done < <(findmnt --fstab --noheadings --raw --output TARGET 2>/dev/null | sort -u)
 }
 
+# Sermo counts the users of each mount and pauses its storage watch while the
+# mount is released; plain mount/umount would bypass both.
+has_sermo() { builtin command -v sermoctl >/dev/null 2>&1; }
+
+sermo_refcount() {
+	local count
+	count=$(sermoctl mount status "$1" 2>/dev/null | sed -n 's/^refcount: //p')
+	[[ "${count}" =~ ^[0-9]+$ ]] || count=0
+	printf '%s\n' "${count}"
+}
+
 mount_portage() {
-	local target
+	local target sermo=false
 	MOUNTED_BY_GLUS=()
+	! has_sermo || sermo=true
 	for target in "${PORTAGE_MOUNTS[@]}"; do
-		! mountpoint -q -- "${target}" || continue
-		if ! command --pretend-safe --no-error-count mount "${target}"; then
+		# A mount made outside Sermo (at boot, by hand) is left alone. One that
+		# other Sermo users hold is shared, so it cannot vanish during the run.
+		if mountpoint -q -- "${target}"; then
+			[ "${sermo}" = true ] && [ "$(sermo_refcount "${target}")" -gt 0 ] || continue
+		fi
+		if [ "${sermo}" = true ]; then
+			command --pretend-safe --no-error-count sermoctl mount "${target}"
+		else
+			command --pretend-safe --no-error-count mount "${target}"
+		fi || {
 			print_error "Unable to mount ${target}"
 			return 1
-		fi
+		}
 		MOUNTED_BY_GLUS+=("${target}")
 	done
 	return 0
 }
 
 # Mounts that were already there when the run started are never unmounted.
+# sermoctl umount only unmounts when no other Sermo user holds the mount.
 release_mounts() {
 	local i ret=0
+	local -a tool=(umount)
+	! has_sermo || tool=(sermoctl umount)
 	for ((i = ${#MOUNTED_BY_GLUS[@]} - 1; i >= 0; i--)); do
-		if ! command --pretend-safe --no-error-count umount "${MOUNTED_BY_GLUS[i]}"; then
+		if ! command --pretend-safe --no-error-count "${tool[@]}" "${MOUNTED_BY_GLUS[i]}"; then
 			UNMOUNT_FAILED+=("${MOUNTED_BY_GLUS[i]}")
 			ret=1
 		fi

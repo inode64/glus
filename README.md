@@ -120,6 +120,14 @@ server over NFS. Two options keep those clients out of each other's way:
   unmount that fails turns a successful run into exit 1 and is listed as
   `Still mounted:` in the summary.
 
+  When [Sermo](https://github.com/inode64/Sermo) is installed, glus mounts
+  with `sermoctl mount` and releases with `sermoctl umount` instead of
+  `mount` and `umount`. Sermo counts the users of each mount, unmounts only
+  when the last one releases it and pauses its storage watch meanwhile, so the
+  unmount raises no alert. A mount that Sermo did not make (at boot or by
+  hand, reference count 0) is still left alone; one that other Sermo users
+  hold is acquired as well, so that it cannot be unmounted during the run.
+
 * `GLUS_SYNC=auto` (default) skips the sync when the `gentoo` repository is
   on a network filesystem (NFS, CIFS, Ceph, GlusterFS, SSHFS, 9p, virtiofs…):
   the server that exports it is the one that must sync it, and two hosts
@@ -296,7 +304,8 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
      --[no-]mount, ${GLUS_MOUNT} <auto|false>
         Mount the /etc/fstab entries under /usr/portage, /var/db/repos,
         /var/cache/binpkgs and /var/cache/distfiles that are not mounted, and
-        unmount at the end only those mounted by this run.
+        unmount at the end only those mounted by this run. With Sermo
+        installed it uses sermoctl mount/umount.
         (default: auto)
 
      -e, --exclude <EXCLUDE>, ${GLUS_EXCLUDE}
