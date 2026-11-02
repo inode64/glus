@@ -43,6 +43,9 @@ the planned operations with `--plan`, run Portage in pretend mode with
   kernel module rebuilds, Go package rebuilds, hooks, quiet output, colored
   output, error email notifications, and dry-run planning.
 
+* Work on hosts that share the Portage tree over NFS: mount it only for the
+  run and leave the synchronization to the host that exports it.
+
 
 # How it works
 
@@ -52,11 +55,13 @@ attempted:
 
 1. Load `/etc/portage/glus.conf`, validate options and hooks, and build the ordered
    list of steps shared by planning and execution. Executing the plan acquires
-   an instance lock and creates a persistent run log directory.
+   an instance lock, creates a persistent run log directory and mounts the
+   shared Portage trees (see [Shared Portage trees](#shared-portage-trees)).
 
-2. Sync Portage with `emaint -a sync`, unless synchronization is disabled. A
-   failed sync is retried once, since a second run usually picks another mirror
-   when one fails Manifest verification.
+2. Sync Portage with `emaint -a sync`, unless synchronization is disabled or
+   the tree is shared over the network. A failed sync is retried once, since a
+   second run usually picks another mirror when one fails Manifest
+   verification.
 
 3. Run optional sync hooks configured with `GLUS_BEFORE_SYNC` and
    `GLUS_AFTER_SYNC`.
@@ -99,6 +104,36 @@ attempted:
 11. Optionally run `emerge --depclean`, clean old binary packages and distfiles
     with `eclean`, run compile hooks, reload systemd when required, and write a
     final summary. Optionally send that summary by email, Slack, or both.
+
+# Shared Portage trees
+
+Several hosts can use the Portage tree, distfiles and binary packages of one
+server over NFS. Two options keep those clients out of each other's way:
+
+* `GLUS_MOUNT=auto` (default; `--no-mount` or `GLUS_MOUNT=false` disables it)
+  mounts the `/etc/fstab` entries at or below `/usr/portage`, `/var/db/repos`,
+  `/var/cache/binpkgs` and `/var/cache/distfiles` that are not mounted yet,
+  parents first. At the end of the run, including failed and interrupted
+  runs, it unmounts only those, in reverse order. Mounts that were already in
+  place are never touched, so the entries can use `noauto` and stay unmounted
+  between runs. A mount that fails stops the run before any maintenance; an
+  unmount that fails turns a successful run into exit 1 and is listed as
+  `Still mounted:` in the summary.
+
+* `GLUS_SYNC=auto` (default) skips the sync when the `gentoo` repository is
+  on a network filesystem (NFS, CIFS, Ceph, GlusterFS, SSHFS, 9p, virtiofs…):
+  the server that exports it is the one that must sync it, and two hosts
+  syncing the same tree at once corrupt it. `--sync` or `GLUS_SYNC=true`
+  forces the sync and `--no-sync` or `GLUS_SYNC=false` disables it.
+
+Schedule the clients after their server has finished, so that they update
+against a freshly synced tree. `--plan` shows the mounts and unmounts that the
+run would perform, and decides the sync with the filesystem type that
+`/etc/fstab` gives for a tree that is not mounted yet.
+
+The binary package modes `auto` and `autoonly` are resolved after mounting:
+they use binary packages when the `PKGDIR` that Portage resolves has a
+`Packages` index.
 
 # Run logs and summaries
 
@@ -254,8 +289,15 @@ curl -o /etc/portage/glus.conf 'https://raw.githubusercontent.com/inode64/glus/m
 ```
   PORTAGE OPTIONS:
      -S, --[no-]sync, ${GLUS_SYNC}
-        Sync portage.
-        (default: true)
+        Sync portage. GLUS_SYNC=auto skips it when the gentoo repository is on a
+        network filesystem: the host that shares it is the one that syncs it.
+        (default: auto)
+
+     --[no-]mount, ${GLUS_MOUNT} <auto|false>
+        Mount the /etc/fstab entries under /usr/portage, /var/db/repos,
+        /var/cache/binpkgs and /var/cache/distfiles that are not mounted, and
+        unmount at the end only those mounted by this run.
+        (default: auto)
 
      -e, --exclude <EXCLUDE>, ${GLUS_EXCLUDE}
         Exclude packages.

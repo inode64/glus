@@ -10,7 +10,7 @@ import tempfile
 import time
 import unittest
 
-from test_glus import FUNCTIONS, bash, plan
+from test_glus import FUNCTIONS, HOST_ISOLATION, bash, plan
 
 
 def runtime_setup(root, *, mock_perl=True):
@@ -30,7 +30,7 @@ fake_emerge() {{ printf 'Fake emerge: %s\\n' "$*"; return "${{MOCK_EXIT:-0}}"; }
 emaint() {{ printf 'Fake emaint: %s\\n' "$*"; }}
 {'rebuild_perl() { command true; }' if mock_perl else ''}
 rebuild_dependencies() {{ command true; }}
-'''
+''' + HOST_ISOLATION
 
 
 class PersistentLogs(unittest.TestCase):
@@ -459,6 +459,143 @@ main --no-sync --no-security --color false --no-slack
 ''')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn('UNEXPECTED', result.stdout + result.stderr)
+
+
+def shared_tree(root, mounted=(), umount_exit=0, mount_exit=0, fstype='nfs'):
+    """A client whose fstab lists the tree and its packages as noauto NFS shares."""
+    calls = shlex.quote(str(root / 'calls'))
+    mounted_targets = ' '.join(shlex.quote(target) for target in mounted)
+    return f'''
+findmnt() {{
+    case "$*" in
+    *'--output TARGET'*) printf '%s\\n' /usr/portage/packages /home /usr/portage ;;
+    *'--mountpoint'* | *'--target'*) printf '{fstype}\\n' ;;
+    esac
+}}
+portageq() {{ printf '/usr/portage\\n'; }}
+MOUNTED=({mounted_targets})
+mountpoint() {{
+    local target
+    for target in "${{MOUNTED[@]}}"; do [ "$target" != "$3" ] || return 0; done
+    return 1
+}}
+mount() {{ printf 'mount %s\\n' "$*" >>{calls}; MOUNTED+=("$1"); return {mount_exit}; }}
+umount() {{ printf 'umount %s\\n' "$*" >>{calls}; return {umount_exit}; }}
+'''
+
+
+class SharedTrees(unittest.TestCase):
+    def calls(self, root):
+        path = root / 'calls'
+        return path.read_text().splitlines() if path.exists() else []
+
+    def test_plan_mounts_skips_sync_and_unmounts_in_reverse_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = plan('--no-security', setup=shared_tree(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = [line.split('Plan command: ', 1)[1].strip() for line in result.stdout.splitlines()
+                     if 'Plan command:' in line]
+            self.assertEqual(lines[:2], ['mount /usr/portage', 'mount /usr/portage/packages'])
+            self.assertEqual(lines[-2:], ['umount /usr/portage/packages', 'umount /usr/portage'])
+            self.assertNotIn('emaint -a sync', result.stdout)
+            self.assertIn('/usr/portage is shared over nfs', result.stdout)
+            self.assertEqual(self.calls(root), [])
+
+    def test_run_unmounts_only_what_it_mounted(self):
+        for status in (0, 2):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = bash(runtime_setup(root) + shared_tree(root, mounted=['/usr/portage']) + f'''
+MOCK_EXIT={status}
+main --no-security --color false --quiet
+''')
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(self.calls(root), ['mount /usr/portage/packages', 'umount /usr/portage/packages'])
+                summary = next((root / 'logs').glob('run-*/summary.txt')).read_text()
+                self.assertIn('Sync portage (/usr/portage is shared over nfs', summary)
+                self.assertNotIn('Fake emaint: -a sync', result.stdout)
+
+    def test_failed_unmount_fails_a_successful_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = bash(runtime_setup(root) + shared_tree(root, umount_exit=32) + '''
+main --no-security --color false --quiet
+''')
+            self.assertEqual(result.returncode, 1, result.stderr)
+            summary = next((root / 'logs').glob('run-*/summary.txt')).read_text()
+            self.assertIn('failed (exit 1)', summary)
+            self.assertIn('Still mounted: /usr/portage/packages /usr/portage', summary)
+
+    def test_failed_mount_stops_before_maintenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = bash(runtime_setup(root) + shared_tree(root, mount_exit=32) + '''
+main --no-security --color false --quiet
+''')
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertNotIn('Fake emerge', result.stdout)
+            self.assertEqual(self.calls(root), ['mount /usr/portage'])
+            summary = next((root / 'logs').glob('run-*/summary.txt')).read_text()
+            self.assertIn('failed (exit 1)', summary)
+
+    def test_signal_unmounts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory)
+            (logs / 'steps.tsv').write_text('')
+            result = bash(shared_tree(logs) + f'''
+LOGS='{logs}'; RUN_INITIALIZED=true; RUN_STARTED=$SECONDS
+notify_mode=never; PLAN_TITLES=(); MOUNTED_BY_GLUS=(/usr/portage); debug=false; quiet=true
+install_traps
+kill -TERM $$
+''')
+            self.assertEqual(result.returncode, 143, result.stderr)
+            self.assertEqual(self.calls(logs), ['umount /usr/portage'])
+
+    def test_sync_choices(self):
+        for options, config, fstype, synced in (
+            ('', '', 'nfs', False), ('', '', 'virtiofs', False), ('', '', 'ext4', True),
+            ('--sync', '', 'nfs', True), ('', 'GLUS_SYNC=true', 'nfs', True),
+            ('--no-sync', '', 'ext4', False),
+        ):
+            with self.subTest(options=options, config=config, fstype=fstype), \
+                    tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = plan('--no-security ' + options, setup=config + '\n' + shared_tree(root, fstype=fstype))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual('Plan command: emaint -a sync' in result.stdout, synced)
+
+    def test_no_mount_leaves_fstab_alone(self):
+        for options, config in (('--no-mount', ''), ('', 'GLUS_MOUNT=false')):
+            with self.subTest(options=options, config=config), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = plan('--no-security ' + options, setup=config + '\n' + shared_tree(root))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn('mount /usr/portage', result.stdout)
+
+    def test_invalid_modes_are_rejected(self):
+        for config in ('GLUS_MOUNT=yes', 'GLUS_SYNC=maybe'):
+            with self.subTest(config=config):
+                result = plan('', setup=config)
+                self.assertEqual(result.returncode, 2, result.stderr)
+
+
+class BinaryAvailability(unittest.TestCase):
+    def test_index_in_resolved_pkgdir_enables_auto_modes(self):
+        for index, expected in ((True, 0), (False, 1)):
+            with self.subTest(index=index), tempfile.TemporaryDirectory() as directory:
+                pkgdir = Path(directory)
+                if index:
+                    (pkgdir / 'Packages').write_text('PACKAGES: 1\n')
+                result = bash(f'''
+portageq() {{ [ "$*" = 'envvar PKGDIR' ] && printf '%s\\n' {shlex.quote(str(pkgdir))}; }}
+check_pkg
+''')
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_portage_failure_disables_auto_modes(self):
+        result = bash('portageq() { return 1; }\ncheck_pkg\n')
+        self.assertEqual(result.returncode, 1, result.stderr)
 
 
 class ProcessCancellation(unittest.TestCase):

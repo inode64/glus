@@ -20,7 +20,7 @@ cleanup() {
 	trap - EXIT
 	cancel_active_run
 	finalize_run "${ret}"
-	exit "${ret}"
+	exit "${RUN_EXIT:-${ret}}"
 }
 
 install_traps() {
@@ -106,6 +106,10 @@ opt_parse() {
 		'-S' | '--sync' | '--no-sync')
 			opt_arg_bool "${@-}"
 			sync="${optArg:?}"
+			;;
+		'--mount' | '--no-mount')
+			opt_arg_bool "${@-}"
+			if [ "${optArg:?}" = 'true' ]; then mount_mode='auto'; else mount_mode='false'; fi
 			;;
 		'-e' | '--exclude')
 			opt_arg_str "${@-}"
@@ -290,8 +294,14 @@ show_help() {
 			  and check that it is correct.%NL
 			  PORTAGE OPTIONS:
 	     -S, --[no-]sync, \${GLUS_SYNC}
-	        Sync portage.
+	        Sync portage. GLUS_SYNC=auto skips it when the gentoo repository is on a
+	        network filesystem: the host that shares it is the one that syncs it.
 	        (default: ${sync})%NL
+	     --[no-]mount, \${GLUS_MOUNT} <auto|false>
+	        Mount the /etc/fstab entries under /usr/portage, /var/db/repos,
+	        /var/cache/binpkgs and /var/cache/distfiles that are not mounted, and
+	        unmount at the end only those mounted by this run.
+	        (default: ${mount_mode})%NL
 	     -e, --exclude <EXCLUDE>, \${GLUS_EXCLUDE}
 	        Exclude packages.
 	        (default: "${exclude}")%NL
@@ -581,7 +591,8 @@ validate_config() {
 
 	ret=0
 
-	validate_bool GLUS_SYNC "${sync}" || ret=1
+	validate_choice GLUS_SYNC "${sync}" true false auto || ret=1
+	validate_choice GLUS_MOUNT "${mount_mode}" auto false || ret=1
 	validate_bool GLUS_FETCH "${fetch}" || ret=1
 	validate_bool GLUS_PRETEND "${pretend}" || ret=1
 	validate_bool GLUS_CHECK "${check}" || ret=1
@@ -813,6 +824,91 @@ sync_portage() {
 	return "${ret}"
 }
 
+# Shared Portage trees are mounted with noauto and only while glus needs them.
+PORTAGE_MOUNT_ROOTS=(/usr/portage /var/db/repos /var/cache/binpkgs /var/cache/distfiles)
+
+find_portage_mounts() {
+	local target root
+	PORTAGE_MOUNTS=()
+	[ "${mount_mode}" = 'auto' ] || return 0
+	while IFS= read -r target; do
+		# Raw output hex-escapes unusual characters; such a target cannot be passed to mount.
+		[[ "${target}" != *'\x'* ]] || continue
+		for root in "${PORTAGE_MOUNT_ROOTS[@]}"; do
+			if [[ "${target}" == "${root}" || "${target}" == "${root}"/* ]]; then
+				PORTAGE_MOUNTS+=("${target}")
+				break
+			fi
+		done
+	# Sorted so that a parent is mounted before the mounts nested in it.
+	done < <(findmnt --fstab --noheadings --raw --output TARGET 2>/dev/null | sort -u)
+}
+
+mount_portage() {
+	local target
+	MOUNTED_BY_GLUS=()
+	for target in "${PORTAGE_MOUNTS[@]}"; do
+		! mountpoint -q -- "${target}" || continue
+		if ! command --pretend-safe --no-error-count mount "${target}"; then
+			print_error "Unable to mount ${target}"
+			return 1
+		fi
+		MOUNTED_BY_GLUS+=("${target}")
+	done
+	return 0
+}
+
+# Mounts that were already there when the run started are never unmounted.
+release_mounts() {
+	local i ret=0
+	for ((i = ${#MOUNTED_BY_GLUS[@]} - 1; i >= 0; i--)); do
+		if ! command --pretend-safe --no-error-count umount "${MOUNTED_BY_GLUS[i]}"; then
+			UNMOUNT_FAILED+=("${MOUNTED_BY_GLUS[i]}")
+			ret=1
+		fi
+	done
+	MOUNTED_BY_GLUS=()
+	return "${ret}"
+}
+
+is_network_fs() {
+	case "$1" in
+	nfs | nfs4 | cifs | smb3 | smbfs | ceph | glusterfs | fuse.glusterfs | fuse.sshfs | 9p | virtiofs | afs | lustre) return 0 ;;
+	esac
+	return 1
+}
+
+path_fstype() {
+	local path="$1" target best=''
+	for target in "${MOUNTED_BY_GLUS[@]}"; do
+		if [[ "${path}" == "${target}" || "${path}" == "${target}"/* ]] && [ "${#target}" -gt "${#best}" ]; then
+			best="${target}"
+		fi
+	done
+	# --plan and --debug do not mount: report the filesystem the run would mount.
+	if [ -n "${best}" ] && ! mountpoint -q -- "${best}"; then
+		findmnt --fstab --first-only --noheadings --output FSTYPE --mountpoint "${best}"
+		return
+	fi
+	findmnt --first-only --noheadings --output FSTYPE --target "${path}"
+}
+
+resolve_sync() {
+	local repo fstype
+	SYNC_SKIP_REASON=''
+	[ "${sync}" = 'auto' ] && [ "${packages_only-false}" != true ] || return 0
+	sync='true'
+	if ! repo=$(portageq get_repo_path "${EROOT:-/}" gentoo 2>/dev/null) || [ -z "${repo}" ]; then
+		print_warn 'Unable to locate the gentoo repository; GLUS_SYNC=auto keeps the sync'
+		return 0
+	fi
+	fstype=$(path_fstype "${repo}" 2>/dev/null)
+	if is_network_fs "${fstype}"; then
+		sync='false'
+		SYNC_SKIP_REASON="${repo} is shared over ${fstype}; its server syncs it"
+	fi
+}
+
 command() {
 	local count_errors discard_output err run_in_pretend temp_file command_started
 	local -a pipeline_status
@@ -925,6 +1021,8 @@ build_plan() {
 		[ -z "${GLUS_BEFORE_SYNC-}" ] || add_step 'Before sync hook' run_config_command "${GLUS_BEFORE_SYNC}"
 		add_step 'Sync portage' sync_portage
 		[ -z "${GLUS_AFTER_SYNC-}" ] || add_step 'After sync hook' run_config_command "${GLUS_AFTER_SYNC}"
+	elif [ -n "${SYNC_SKIP_REASON-}" ] && [ "${pretend}" != true ]; then
+		add_step 'Sync portage' skip_step "${SYNC_SKIP_REASON}"
 	else
 		add_step 'Sync portage' skip_step 'Disabled or pretend mode'
 	fi
@@ -1150,7 +1248,7 @@ supervise_plan() {
 	ret=$?
 	ACTIVE_PID=''
 	finalize_run "${ret}"
-	return "${ret}"
+	return "${RUN_EXIT:-${ret}}"
 }
 
 cancel_active_run() {
@@ -1173,6 +1271,11 @@ finalize_run() {
 	local completed=0 failed=0 skipped=0
 	[ "${RUN_INITIALIZED-false}" = true ] && [ "${RUN_FINALIZED-false}" != true ] || return 0
 	RUN_FINALIZED=true
+	# A mount left behind keeps the client tied to the NFS server: report it as a failure.
+	if ! release_mounts && [ "${ret}" -eq 0 ]; then
+		ret=1
+	fi
+	RUN_EXIT="${ret}"
 	[ "${ret}" -eq 0 ] || status=failed
 	case "${ret}" in 129 | 130 | 143) status=interrupted ;; esac
 	duration=$((SECONDS - RUN_STARTED))
@@ -1198,6 +1301,7 @@ finalize_run() {
 		printf 'GLUS on %s: %s (exit %s)\n' "$(hostname)" "${status}" "${ret}"
 		printf 'Duration: %ss\nCompleted: %s; failed/interrupted: %s; skipped: %s\n' "${duration}" "${completed}" "${failed}" "${skipped}"
 		printf 'Logs: %s\n' "${LOGS}"
+		[ "${#UNMOUNT_FAILED[@]}" -eq 0 ] || printf 'Still mounted: %s\n' "${UNMOUNT_FAILED[*]}"
 		while IFS=$'\t' read -r index state code seconds title; do
 			printf '  %s: %s (%ss, exit %s)\n' "${state}" "${title}" "${seconds}" "${code}"
 		done <"${LOGS}/steps.tsv"
@@ -1262,12 +1366,26 @@ notify_run() {
 	fi
 }
 
+# Binary packages are available when PKGDIR has an index. Portage resolves
+# PKGDIR, so make.conf may be a directory and the default location counts.
 check_pkg() {
-	if grep -q ^PKGDIR= /etc/make.conf || grep -q ^PKGDIR= /etc/portage/make.conf; then
-		return 0
-	fi
+	local pkgdir
+	pkgdir=$(portageq envvar PKGDIR 2>/dev/null) || return 1
+	[ -n "${pkgdir}" ] && [ -s "${pkgdir}/Packages" ]
+}
 
-	return 1
+resolve_binary() {
+	case "${binary:?}" in
+	'false') binary_args=() ;;
+	'true') binary_args=(-k) ;;
+	'only') binary_args=(-K) ;;
+	'auto')
+		if check_pkg; then binary_args=(-k); else binary_args=(); fi
+		;;
+	'autoonly')
+		if check_pkg; then binary_args=(-K); else binary_args=(); fi
+		;;
+	esac
 }
 
 get_versions() {
@@ -1309,7 +1427,11 @@ main() {
 	#
 
 	# Sync portage.
-	sync="${GLUS_SYNC-"true"}"
+	sync="${GLUS_SYNC-"auto"}"
+
+	# Mount the shared Portage trees listed in /etc/fstab.
+	mount_mode="${GLUS_MOUNT-"auto"}"
+	MOUNTED_BY_GLUS=() UNMOUNT_FAILED=()
 
 	# Only fetch packages.
 	fetch="${GLUS_FETCH-"false"}"
@@ -1462,35 +1584,25 @@ main() {
 		emerge_opts_args=()
 	fi
 
-	# Check the binary package option. validate_config guarantees the value
-	# is one of: false|true|only|auto|autoonly.
-	case "${binary:?}" in
-	'false') binary_args=() ;;
-	'true') binary_args=(-k) ;;
-	'only') binary_args=(-K) ;;
-	'auto')
-		if check_pkg; then
-			binary_args=(-k)
-		else
-			binary_args=()
-		fi
-		;;
-	'autoonly')
-		if check_pkg; then
-			binary_args=(-K)
-		else
-			binary_args=()
-		fi
-		;;
-	esac
-
-	build_plan
+	find_portage_mounts
+	local ret
 	if [ "${dry_run}" = true ] || [ "${debug}" = true ]; then
+		mount_portage
+		# The auto modes need the mounted tree, so they are resolved after mounting.
+		resolve_binary
+		resolve_sync
+		build_plan
 		execute_plan
-		return
+		ret=$?
+		release_mounts
+		return "${ret}"
 	fi
 
 	initialize_run || return
+	mount_portage || return
+	resolve_binary
+	resolve_sync
+	build_plan
 	get_versions
 	supervise_plan
 }

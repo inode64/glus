@@ -22,12 +22,19 @@ def bash(code):
     )
 
 
+# The real fstab and Portage of the test host must not change the results.
+HOST_ISOLATION = '''
+findmnt() { :; }
+portageq() { printf '/var/db/repos/gentoo\\n'; }
+'''
+
+
 def plan(options, setup=''):
     return bash('''
 SYS_CONF_FILE=/nonexistent/glus-test.conf; errors=0
 get_versions() { :; }
 find_emerge() { printf /fake/emerge; }
-''' + setup + '\nmain --plan --color false ' + options + '\n')
+''' + HOST_ISOLATION + setup + '\nmain --plan --color false ' + options + '\n')
 
 
 class PackageSets(unittest.TestCase):
@@ -203,7 +210,7 @@ validate_config() { printf '%s %s' "$sync" "$security"; return 77; }
 main
 ''')
         self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertEqual(result.stdout, 'true true')
+        self.assertEqual(result.stdout, 'auto true')
 
     def test_package_argument_keeps_spaces(self):
         result = bash('''
